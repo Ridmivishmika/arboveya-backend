@@ -1,0 +1,480 @@
+@Arboveya.Api_HostAddress = http://localhost:5287
+
+### 1. Register a new user
+POST {{Arboveya.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "John",
+  "lastName": "Doe",
+  "email": "john.doe@example.com",
+  "password": "SecurePassword123!",
+  "role": "Customer",
+  "address": "123 Main Street, Suite 100",
+  "nationality": "Sri Lankan",
+  "phoneNumber": "0771234567"
+}
+
+### 2. Login
+# @name login
+POST {{Arboveya.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "john.doe@example.com",
+  "password": "SecurePassword123!"
+}
+
+### 3. Access Protected Profile (Requires JWT Bearer Token)
+@authToken = {{login.response.body.token}}
+
+GET {{Arboveya.Api_HostAddress}}/api/auth/me
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### ==========================================
+### CATEGORY CRUD (Admin Only)
+### ==========================================
+
+### 4. Register Admin User
+POST {{Arboveya.Api_HostAddress}}/api/auth/register
+Content-Type: application/json
+
+{
+  "firstName": "Admin",
+  "lastName": "User",
+  "email": "admin@arboveya.com",
+  "password": "AdminSecurePassword123!",
+  "role": "Admin"
+}
+
+### 5. Login as Admin
+# @name adminLogin
+POST {{Arboveya.Api_HostAddress}}/api/auth/login
+Content-Type: application/json
+
+{
+  "email": "admin@arboveya.com",
+  "password": "AdminSecurePassword123!"
+}
+
+### 6. Create Category (Requires Admin Token)
+@adminToken = {{adminLogin.response.body.token}}
+# @name createCategory
+POST {{Arboveya.Api_HostAddress}}/api/categories
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Indoor Plants",
+  "description": "Foliage and flowering plants suited for living rooms and offices."
+}
+
+### 7. Get All Categories (Admin Only)
+GET {{Arboveya.Api_HostAddress}}/api/categories
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 8. Search Categories by keyword
+GET {{Arboveya.Api_HostAddress}}/api/categories?search=Indoor
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 9. Get Category by ID
+@categoryId = {{createCategory.response.body.id}}
+GET {{Arboveya.Api_HostAddress}}/api/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 10. Get Category by Name (Admin Only)
+GET {{Arboveya.Api_HostAddress}}/api/categories/by-name/Indoor%20Plants
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 11. Update Category
+PUT {{Arboveya.Api_HostAddress}}/api/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "name": "Indoor & House Plants",
+  "description": "Premium indoor plants, succulents, and air-purifiers."
+}
+
+### 12. Delete Category
+DELETE {{Arboveya.Api_HostAddress}}/api/categories/{{categoryId}}
+Authorization: Bearer {{adminToken}}
+
+### 13. Unauthorized Test (Access without Admin token should return 401/403)
+GET {{Arboveya.Api_HostAddress}}/api/categories
+Accept: application/json
+
+### ==========================================
+### PRODUCT CRUD (Admin Only)
+### ==========================================
+
+### 14. Create Product (Requires Admin Token & CategoryId)
+# @name createProduct
+POST {{Arboveya.Api_HostAddress}}/api/products
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "categoryId": "{{categoryId}}",
+  "name": "Monstera Deliciosa",
+  "description": "Popular tropical houseplant with distinctive natural leaf holes.",
+  "price": 24.99,
+  "stockQuantity": 50,
+  "imageUrl": "https://images.unsplash.com/photo-1614594975525-e45190c55d0b",
+  "weight": "1.5 kg"
+}
+
+### 15. Get All Products (Admin Only)
+GET {{Arboveya.Api_HostAddress}}/api/products
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 16. Filter Products by Category
+GET {{Arboveya.Api_HostAddress}}/api/products?categoryId={{categoryId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 17. Search Products by keyword
+GET {{Arboveya.Api_HostAddress}}/api/products?search=Monstera
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 18. Get Product by ID
+@productId = {{createProduct.response.body.id}}
+GET {{Arboveya.Api_HostAddress}}/api/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 19. Get Product by Name
+GET {{Arboveya.Api_HostAddress}}/api/products/by-name/Monstera%20Deliciosa
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 20. Update Product (Partial Update - only modifies specified fields and keeps existing data)
+PUT {{Arboveya.Api_HostAddress}}/api/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "price": 27.50,
+  "stockQuantity": 42
+}
+
+### 21. Delete Product
+DELETE {{Arboveya.Api_HostAddress}}/api/products/{{productId}}
+Authorization: Bearer {{adminToken}}
+
+### ==========================================
+### PRODUCT REVIEWS (User Submission & Admin Moderation)
+### ==========================================
+
+### 22. User Submits Product Review (Requires User Token, e.g. Customer)
+# @name submitReview
+POST {{Arboveya.Api_HostAddress}}/api/reviews
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "productId": "{{productId}}",
+  "rating": 5,
+  "comment": "Absolutely love this Monstera! Arrived fresh and well-packaged."
+}
+
+### 23. Get Approved Reviews for Product (Public - Should be empty until Admin approves)
+GET {{Arboveya.Api_HostAddress}}/api/products/{{productId}}/reviews
+Accept: application/json
+
+### 24. Admin Moderation Queue: View All Pending (Unapproved) Reviews
+GET {{Arboveya.Api_HostAddress}}/api/reviews/moderation?isApproved=false
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 25. Admin Approves Review
+@reviewId = {{submitReview.response.body.id}}
+PUT {{Arboveya.Api_HostAddress}}/api/reviews/{{reviewId}}/moderation
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "isApproved": true
+}
+
+### 26. Get Approved Reviews for Product (Public - Now contains the approved review)
+GET {{Arboveya.Api_HostAddress}}/api/products/{{productId}}/reviews
+Accept: application/json
+
+### 27. User Updates Own Review
+PUT {{Arboveya.Api_HostAddress}}/api/reviews/{{reviewId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "rating": 4,
+  "comment": "Updated: Still loving it, growing fast after 2 weeks!"
+}
+
+### 28. Admin Deletes Review
+DELETE {{Arboveya.Api_HostAddress}}/api/reviews/{{reviewId}}
+Authorization: Bearer {{adminToken}}
+
+### ==========================================
+### BLOG POSTS (User Submission & Admin Moderation)
+### ==========================================
+
+### 29. User Submits a Blog Post (Requires User Token, e.g. Customer)
+# @name submitBlog
+POST {{Arboveya.Api_HostAddress}}/api/blogs
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "title": "Top 5 Indoor Plants for Beginners",
+  "content": "If you are new to houseplant gardening, Snake Plants, Pothos, and ZZ Plants are practically indestructible...",
+  "imageUrl": "https://images.unsplash.com/photo-1485955900006-10f4d324d411"
+}
+
+### 30. User Views Their Own Blog Posts (Includes pending and approved)
+GET {{Arboveya.Api_HostAddress}}/api/blogs/my-blogs
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 31. Public Views Published Blogs (Public - Should NOT contain the pending blog)
+GET {{Arboveya.Api_HostAddress}}/api/blogs
+Accept: application/json
+
+### 32. Admin Moderation Queue: View All Pending Blogs
+GET {{Arboveya.Api_HostAddress}}/api/blogs/moderation?isApproved=false
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 33. Admin Approves Blog Post
+@blogId = {{submitBlog.response.body.id}}
+PUT {{Arboveya.Api_HostAddress}}/api/blogs/{{blogId}}/moderation
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "isApproved": true
+}
+
+### 34. Public Views Published Blogs (Public - Now contains the approved blog)
+GET {{Arboveya.Api_HostAddress}}/api/blogs
+Accept: application/json
+
+### 35. Public / Readers Get Single Blog by ID
+GET {{Arboveya.Api_HostAddress}}/api/blogs/{{blogId}}
+Accept: application/json
+
+### 36. User Updates Own Blog Post
+PUT {{Arboveya.Api_HostAddress}}/api/blogs/{{blogId}}
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "title": "Top 5 Indestructible Indoor Plants for Beginners (Updated)",
+  "content": "Updated content with additional watering tips and soil mix recommendations."
+}
+
+### 37. Admin Publishes an Official Blog Directly (Auto-Approved)
+# @name adminCreateBlog
+POST {{Arboveya.Api_HostAddress}}/api/blogs
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "title": "Welcome to Arboveya Botanical Gardens",
+  "content": "We are thrilled to launch our official botanical store and community platform.",
+  "imageUrl": "https://images.unsplash.com/photo-1466692476868-aef1dfb1e735"
+}
+
+### 38. Admin Deletes Any Blog Post
+DELETE {{Arboveya.Api_HostAddress}}/api/blogs/{{blogId}}
+Authorization: Bearer {{adminToken}}
+
+### ==========================================
+### ORDERS & ORDER ITEMS (Checkout & Management)
+### ==========================================
+
+### 39. Authenticated Checkout (Auto-populates Name, Email, and saved Address)
+# @name authenticatedOrder
+POST {{Arboveya.Api_HostAddress}}/api/orders
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "items": [
+    {
+      "productId": "{{productId}}",
+      "quantity": 2
+    }
+  ]
+}
+
+### 40. Guest Checkout (No Token, explicitly supplies Name, Email, and Address)
+# @name guestOrder
+POST {{Arboveya.Api_HostAddress}}/api/orders
+Content-Type: application/json
+
+{
+  "customerName": "Alice Wonderland",
+  "customerEmail": "alice@example.com",
+  "shippingAddress": "456 Blossom Lane, Colombo 07, Sri Lanka",
+  "items": [
+    {
+      "productId": "{{productId}}",
+      "quantity": 1
+    }
+  ]
+}
+
+### 41. Customer Views Their Order History
+GET {{Arboveya.Api_HostAddress}}/api/orders/my-orders
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 42. Get Single Order by ID (Customer can view their own, Admin can view any)
+@orderId = {{authenticatedOrder.response.body.id}}
+GET {{Arboveya.Api_HostAddress}}/api/orders/{{orderId}}
+Authorization: Bearer {{authToken}}
+Accept: application/json
+
+### 43. Admin Views All Orders Across System (Supports filters)
+GET {{Arboveya.Api_HostAddress}}/api/orders?orderStatus=Pending
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 44. Admin Updates Order and Payment Status
+PUT {{Arboveya.Api_HostAddress}}/api/orders/{{orderId}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "orderStatus": "Processing",
+  "paymentStatus": "Paid"
+}
+
+### ==========================================
+### SITE SETTINGS (Dynamic Content Singleton)
+### ==========================================
+
+### 45. Get Dynamic Site Settings (Public)
+GET {{Arboveya.Api_HostAddress}}/api/sitesettings
+Accept: application/json
+
+### 46. Update Site Settings (Requires Admin Token)
+PUT {{Arboveya.Api_HostAddress}}/api/sitesettings
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "homePageHeroText": "Discover Luxury Indoor Greenery & Tropical Plants at Arboveya",
+  "aboutUsContent": "Arboveya is Sri Lanka's premier indoor plant boutique, offering curated collections of rare and air-purifying plants with doorstep delivery.",
+  "facebookLink": "https://facebook.com/arboveyaplants",
+  "whatsappNumber": "+94779876543"
+}
+
+### 47. Verify Public View Reflects Updated Site Settings
+GET {{Arboveya.Api_HostAddress}}/api/sitesettings
+Accept: application/json
+
+### ==========================================
+### CONTACT US (Customer Inquiries & Admin Management)
+### ==========================================
+
+### 48. Guest Submits Contact Inquiry
+# @name submitContactGuest
+POST {{Arboveya.Api_HostAddress}}/api/contact
+Content-Type: application/json
+
+{
+  "name": "Sarah Miller",
+  "email": "sarah.miller@example.com",
+  "phoneNumber": "+94712345678",
+  "subject": "Plant Care Advice for Fiddle Leaf Fig",
+  "message": "Hi Arboveya team! My Fiddle Leaf Fig has brown spots on the lower leaves. Could you recommend the best light and fertilizer routine?"
+}
+
+### 49. Authenticated Customer Submits Contact Inquiry
+POST {{Arboveya.Api_HostAddress}}/api/contact
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "name": "John Doe",
+  "email": "john.doe@example.com",
+  "subject": "Bulk Corporate Order Inquiry",
+  "message": "We would like to place an order for 25 desk plants for our new office. Do you offer corporate discounts and custom pots?"
+}
+
+### 50. Admin Views All Inquiries (Supports status and keyword filtering)
+GET {{Arboveya.Api_HostAddress}}/api/contact?status=Unread
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 51. Admin Views Single Inquiry (Automatically marks status as 'Read')
+@contactId = {{submitContactGuest.response.body.id}}
+GET {{Arboveya.Api_HostAddress}}/api/contact/{{contactId}}
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 52. Admin Updates Inquiry Status & Adds Resolution Notes
+PUT {{Arboveya.Api_HostAddress}}/api/contact/{{contactId}}/status
+Authorization: Bearer {{adminToken}}
+Content-Type: application/json
+
+{
+  "status": "Replied",
+  "adminNotes": "Emailed Sarah care guide for Fiddle Leaf Fig and recommended Neem oil treatment."
+}
+
+### 53. Admin Deletes an Inquiry
+DELETE {{Arboveya.Api_HostAddress}}/api/contact/{{contactId}}
+Authorization: Bearer {{adminToken}}
+
+### ==========================================
+### PROFILE MANAGEMENT (Customer /profile)
+### ==========================================
+
+### 54. Customer Updates Own Profile (Address, Nationality, Phone)
+PUT {{Arboveya.Api_HostAddress}}/api/auth/me
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "firstName": "Johnathan",
+  "lastName": "Doe",
+  "address": "456 Palm Grove Avenue, Colombo 03",
+  "nationality": "Sri Lankan",
+  "phoneNumber": "+94771234567"
+}
+
+### ==========================================
+### ADMIN DASHBOARD & USER MANAGEMENT
+### ==========================================
+
+### 55. Admin Views Dashboard Overview (Sales, Orders, Metrics)
+GET {{Arboveya.Api_HostAddress}}/api/admin/dashboard
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### 56. Admin Views All Registered Users
+GET {{Arboveya.Api_HostAddress}}/api/admin/users
+Authorization: Bearer {{adminToken}}
+Accept: application/json
+
+### ==========================================
+### PUBLIC CATALOG BROWSING (Guests & Customers)
+### ==========================================
+
+### 57. Public Guest Browses Categories
+GET {{Arboveya.Api_HostAddress}}/api/categories
+Accept: application/json
+
+### 58. Public Guest Browses Products
+GET {{Arboveya.Api_HostAddress}}/api/products
+Accept: application/json

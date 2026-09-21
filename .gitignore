@@ -1,0 +1,30 @@
+# Build Results
+bin/
+obj/
+*.dll
+*.pdb
+*.exe
+
+# Environment & Secrets (Never commit credentials)
+.env
+.env*.local
+.env.development
+.env.test
+.env.production
+!.env.example
+
+# ASP.NET Core User Secrets & Production Configs
+appsettings.Production.json
+
+# Visual Studio / VS Code
+.vs/
+.vscode/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# Operating System
+Thumbs.db
+ehthumbs.db
+.DS_Store
