@@ -246,6 +246,63 @@ public class ProductsController : ControllerBase
     }
 
     /// <summary>
+    /// Upload multiple product images from device (up to 10 photos)
+    /// </summary>
+    [HttpPost("upload-images")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UploadMultipleImages(List<IFormFile> files)
+    {
+        if (files == null || files.Count == 0)
+        {
+            return BadRequest(new { message = "Please select at least one image file to upload." });
+        }
+
+        if (files.Count > 10)
+        {
+            return BadRequest(new { message = "A maximum of 10 photos can be uploaded at once." });
+        }
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
+        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+        if (!Directory.Exists(webRootPath))
+        {
+            Directory.CreateDirectory(webRootPath);
+        }
+
+        var uploadedUrls = new List<string>();
+
+        foreach (var file in files)
+        {
+            if (file == null || file.Length == 0) continue;
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(extension))
+            {
+                return BadRequest(new { message = $"File '{file.FileName}' has unsupported format. Allowed: jpg, jpeg, png, webp, avif, svg." });
+            }
+
+            if (file.Length > 10 * 1024 * 1024)
+            {
+                return BadRequest(new { message = $"File '{file.FileName}' exceeds 10MB limit." });
+            }
+
+            var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
+            var filePath = Path.Combine(webRootPath, uniqueFileName);
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            uploadedUrls.Add($"/uploads/{uniqueFileName}");
+        }
+
+        return Ok(new { imageUrls = uploadedUrls });
+    }
+
+    /// <summary>
     /// Submit a product as a Seller (Pending admin review)
     /// </summary>
     [HttpPost("seller")]
@@ -377,7 +434,7 @@ public class ProductsController : ControllerBase
 
         try
         {
-            var updated = await _productService.UpdateAsync(id, request);
+            var updated = await _productService.UpdateAsync(id, request, isSeller: true);
             if (updated == null)
             {
                 return NotFound(new { message = $"Product with ID '{id}' was not found." });

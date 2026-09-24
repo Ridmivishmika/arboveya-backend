@@ -171,4 +171,48 @@ public class CategoriesController : ControllerBase
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while deleting the category." });
         }
     }
+
+    /// <summary>
+    /// Upload category image from device (Admin only / authorized)
+    /// </summary>
+    [HttpPost("upload-image")]
+    [Consumes("multipart/form-data")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> UploadImage(IFormFile? file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            return BadRequest(new { message = "Please select an image file to upload." });
+        }
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!allowedExtensions.Contains(extension))
+        {
+            return BadRequest(new { message = $"Unsupported file format '{extension}'. Allowed formats: jpg, jpeg, png, webp, avif, svg." });
+        }
+
+        if (file.Length > 10 * 1024 * 1024) // 10MB limit
+        {
+            return BadRequest(new { message = "Image size exceeds maximum limit of 10MB." });
+        }
+
+        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
+        if (!Directory.Exists(webRootPath))
+        {
+            Directory.CreateDirectory(webRootPath);
+        }
+
+        var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
+        var filePath = Path.Combine(webRootPath, uniqueFileName);
+
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        var relativeUrl = $"/uploads/{uniqueFileName}";
+        return Ok(new { imageUrl = relativeUrl, fileName = uniqueFileName });
+    }
 }

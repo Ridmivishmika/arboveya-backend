@@ -31,9 +31,9 @@ public class OrderService : IOrderService
                 throw new UnauthorizedAccessException("Authenticated user account not found.");
             }
 
-            if (user.Role == "Seller")
+            if (user.Role == "Seller" || user.Role == "Admin")
             {
-                throw new InvalidOperationException("Seller accounts cannot purchase products. Please browse or place orders using a customer account.");
+                throw new InvalidOperationException($"{user.Role} accounts cannot purchase products. Please browse or place orders using a customer account.");
             }
 
             customerName = !string.IsNullOrWhiteSpace(dto.CustomerName) 
@@ -78,9 +78,9 @@ public class OrderService : IOrderService
             var matchingUser = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == customerEmail.ToLower());
             if (matchingUser != null)
             {
-                if (matchingUser.Role == "Seller")
+                if (matchingUser.Role == "Seller" || matchingUser.Role == "Admin")
                 {
-                    throw new InvalidOperationException("Seller accounts cannot purchase products. Please browse or place orders using a customer account.");
+                    throw new InvalidOperationException($"{matchingUser.Role} accounts cannot purchase products. Please browse or place orders using a customer account.");
                 }
                 userId = matchingUser.Id;
             }
@@ -141,6 +141,10 @@ public class OrderService : IOrderService
                 totalAmount += unitPrice * orderItem.Quantity;
             }
 
+            var shippingCost = dto.ShippingCost ?? 0m;
+            var shippingMethod = string.IsNullOrWhiteSpace(dto.ShippingMethod) ? "Standard Shipping" : dto.ShippingMethod.Trim();
+            var finalTotal = totalAmount + shippingCost;
+
             var order = new Order
             {
                 Id = orderId,
@@ -148,7 +152,9 @@ public class OrderService : IOrderService
                 CustomerName = customerName,
                 CustomerEmail = customerEmail,
                 ShippingAddress = shippingAddress,
-                TotalAmount = totalAmount > 0 ? totalAmount : 49.98m,
+                ShippingMethod = shippingMethod,
+                ShippingCost = shippingCost,
+                TotalAmount = finalTotal > 0 ? finalTotal : 49.98m,
                 PaymentStatus = "Paid",
                 OrderStatus = "Processing",
                 PayHereOrderId = payHereOrderId,
@@ -329,6 +335,36 @@ public class OrderService : IOrderService
         return MapToDto(order);
     }
 
+    public async Task<OrderResponseDto?> UpdateOrderTrackingAsync(Guid id, UpdateOrderTrackingDto dto)
+    {
+        var order = await _context.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .FirstOrDefaultAsync(o => o.Id == id);
+
+        if (order == null)
+        {
+            return null;
+        }
+
+        order.TrackingNumber = dto.TrackingNumber.Trim();
+        if (!string.IsNullOrWhiteSpace(dto.ShippingCarrier))
+        {
+            order.ShippingCarrier = dto.ShippingCarrier.Trim();
+        }
+
+        order.OrderStatus = string.IsNullOrWhiteSpace(dto.OrderStatus) ? "Shipped" : dto.OrderStatus.Trim();
+        order.ShippedAt = DateTime.UtcNow;
+        order.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Order '{OrderId}' updated with tracking number '{TrackingNumber}' by carrier '{Carrier}'. Status: '{Status}'.",
+            order.Id, order.TrackingNumber, order.ShippingCarrier, order.OrderStatus);
+
+        return MapToDto(order);
+    }
+
     private static OrderResponseDto MapToDto(Order order)
     {
         return new OrderResponseDto
@@ -342,6 +378,11 @@ public class OrderService : IOrderService
             PaymentStatus = order.PaymentStatus,
             OrderStatus = order.OrderStatus,
             PayHereOrderId = order.PayHereOrderId,
+            TrackingNumber = order.TrackingNumber,
+            ShippingCarrier = order.ShippingCarrier,
+            ShippingMethod = order.ShippingMethod,
+            ShippingCost = order.ShippingCost,
+            ShippedAt = order.ShippedAt,
             CreatedAt = order.CreatedAt,
             UpdatedAt = order.UpdatedAt,
             Items = order.Items.Select(i => new OrderItemResponseDto

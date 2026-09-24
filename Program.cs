@@ -226,6 +226,24 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Mission"" text;
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Vision"" text;
             ALTER TABLE ""ContactMessages"" ADD COLUMN IF NOT EXISTS ""UserType"" character varying(50) DEFAULT 'General';
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""CountryOfOrigin"" character varying(100);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ExpiryDate"" timestamp with time zone;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ManufactureDate"" timestamp with time zone;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""Condition"" character varying(100) DEFAULT 'Brand New';
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""Specifications"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ShippingMethod"" character varying(150);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""EstimatedDeliveryTime"" character varying(100);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""IsFreeShipping"" boolean DEFAULT false;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ShippingCost"" numeric(18,2) DEFAULT 0;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""HandlingTime"" character varying(100);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ReturnPolicy"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ShippingOptions"" text;
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""TrackingNumber"" character varying(150);
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingCarrier"" character varying(100);
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingMethod"" character varying(150);
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingCost"" numeric(18,2) DEFAULT 0;
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippedAt"" timestamp with time zone;
+            ALTER TABLE ""BlogPosts"" ALTER COLUMN ""ImageUrl"" TYPE text;
             DELETE FROM ""Users"" WHERE ""Email"" IN ('test_arboveya_check@example.com', 'test_cleanup_user@example.com');
         ");
 

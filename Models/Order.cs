@@ -41,6 +41,20 @@ public class Order
     [MaxLength(100)]
     public string PayHereOrderId { get; set; } = string.Empty;
 
+    [MaxLength(150)]
+    public string? TrackingNumber { get; set; }
+
+    [MaxLength(100)]
+    public string? ShippingCarrier { get; set; }
+
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal ShippingCost { get; set; } = 0;
+
+    public DateTime? ShippedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

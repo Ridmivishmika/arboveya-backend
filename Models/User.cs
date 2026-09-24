@@ -41,6 +41,11 @@ public class User
 
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+    [MaxLength(10)]
+    public string? ResetCode { get; set; }
+
+    public DateTime? ResetCodeExpiry { get; set; }
+
     public ICollection<ProductReview> Reviews { get; set; } = new List<ProductReview>();
     public ICollection<BlogPost> BlogPosts { get; set; } = new List<BlogPost>();
     public ICollection<Order> Orders { get; set; } = new List<Order>();

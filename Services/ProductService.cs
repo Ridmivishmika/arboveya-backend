@@ -228,6 +228,18 @@ public class ProductService : IProductService
             KeyBenefits = string.IsNullOrWhiteSpace(dto.KeyBenefits) ? null : dto.KeyBenefits.Trim(),
             GalleryImages = string.IsNullOrWhiteSpace(dto.GalleryImages) ? null : dto.GalleryImages.Trim(),
             IsBestSeller = dto.IsBestSeller,
+            CountryOfOrigin = string.IsNullOrWhiteSpace(dto.CountryOfOrigin) ? null : dto.CountryOfOrigin.Trim(),
+            ExpiryDate = dto.ExpiryDate.HasValue ? DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            ManufactureDate = dto.ManufactureDate.HasValue ? DateTime.SpecifyKind(dto.ManufactureDate.Value, DateTimeKind.Utc) : null,
+            Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "Brand New" : dto.Condition.Trim(),
+            Specifications = string.IsNullOrWhiteSpace(dto.Specifications) ? null : dto.Specifications.Trim(),
+            ShippingMethod = string.IsNullOrWhiteSpace(dto.ShippingMethod) ? null : dto.ShippingMethod.Trim(),
+            EstimatedDeliveryTime = string.IsNullOrWhiteSpace(dto.EstimatedDeliveryTime) ? null : dto.EstimatedDeliveryTime.Trim(),
+            IsFreeShipping = dto.IsFreeShipping,
+            ShippingCost = dto.ShippingCost,
+            HandlingTime = string.IsNullOrWhiteSpace(dto.HandlingTime) ? null : dto.HandlingTime.Trim(),
+            ReturnPolicy = string.IsNullOrWhiteSpace(dto.ReturnPolicy) ? null : dto.ReturnPolicy.Trim(),
+            ShippingOptions = string.IsNullOrWhiteSpace(dto.ShippingOptions) ? null : dto.ShippingOptions.Trim(),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -274,7 +286,7 @@ public class ProductService : IProductService
         return responseDto;
     }
 
-    public async Task<ProductResponseDto?> UpdateAsync(Guid id, UpdateProductDto dto)
+    public async Task<ProductResponseDto?> UpdateAsync(Guid id, UpdateProductDto dto, bool isSeller = false)
     {
         var product = await _context.Products
             .Include(p => p.Category)
@@ -286,6 +298,13 @@ public class ProductService : IProductService
         if (product == null)
         {
             return null;
+        }
+
+        // If updated by a seller, reset status to Pending so admin re-approval is mandatory
+        if (isSeller)
+        {
+            product.ApprovalStatus = "Pending";
+            product.AdminFeedback = "Product details updated by seller. Awaiting Admin review.";
         }
 
         if (dto.CategoryId.HasValue && dto.CategoryId.Value != product.CategoryId)
@@ -379,6 +398,66 @@ public class ProductService : IProductService
         if (dto.IsBestSeller.HasValue)
         {
             product.IsBestSeller = dto.IsBestSeller.Value;
+        }
+
+        if (dto.CountryOfOrigin != null)
+        {
+            product.CountryOfOrigin = string.IsNullOrWhiteSpace(dto.CountryOfOrigin) ? null : dto.CountryOfOrigin.Trim();
+        }
+
+        if (dto.ExpiryDate.HasValue)
+        {
+            product.ExpiryDate = DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc);
+        }
+
+        if (dto.ManufactureDate.HasValue)
+        {
+            product.ManufactureDate = DateTime.SpecifyKind(dto.ManufactureDate.Value, DateTimeKind.Utc);
+        }
+
+        if (dto.Condition != null)
+        {
+            product.Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "Brand New" : dto.Condition.Trim();
+        }
+
+        if (dto.Specifications != null)
+        {
+            product.Specifications = string.IsNullOrWhiteSpace(dto.Specifications) ? null : dto.Specifications.Trim();
+        }
+
+        if (dto.ShippingMethod != null)
+        {
+            product.ShippingMethod = string.IsNullOrWhiteSpace(dto.ShippingMethod) ? null : dto.ShippingMethod.Trim();
+        }
+
+        if (dto.EstimatedDeliveryTime != null)
+        {
+            product.EstimatedDeliveryTime = string.IsNullOrWhiteSpace(dto.EstimatedDeliveryTime) ? null : dto.EstimatedDeliveryTime.Trim();
+        }
+
+        if (dto.IsFreeShipping.HasValue)
+        {
+            product.IsFreeShipping = dto.IsFreeShipping.Value;
+        }
+
+        if (dto.ShippingCost.HasValue)
+        {
+            product.ShippingCost = dto.ShippingCost.Value;
+        }
+
+        if (dto.HandlingTime != null)
+        {
+            product.HandlingTime = string.IsNullOrWhiteSpace(dto.HandlingTime) ? null : dto.HandlingTime.Trim();
+        }
+
+        if (dto.ReturnPolicy != null)
+        {
+            product.ReturnPolicy = string.IsNullOrWhiteSpace(dto.ReturnPolicy) ? null : dto.ReturnPolicy.Trim();
+        }
+
+        if (dto.ShippingOptions != null)
+        {
+            product.ShippingOptions = string.IsNullOrWhiteSpace(dto.ShippingOptions) ? null : dto.ShippingOptions.Trim();
         }
 
         product.UpdatedAt = DateTime.UtcNow;
@@ -551,6 +630,18 @@ public class ProductService : IProductService
             KeyBenefits = string.IsNullOrWhiteSpace(dto.KeyBenefits) ? null : dto.KeyBenefits.Trim(),
             GalleryImages = string.IsNullOrWhiteSpace(dto.GalleryImages) ? null : dto.GalleryImages.Trim(),
             IsBestSeller = false,
+            CountryOfOrigin = string.IsNullOrWhiteSpace(dto.CountryOfOrigin) ? null : dto.CountryOfOrigin.Trim(),
+            ExpiryDate = dto.ExpiryDate.HasValue ? DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            ManufactureDate = dto.ManufactureDate.HasValue ? DateTime.SpecifyKind(dto.ManufactureDate.Value, DateTimeKind.Utc) : null,
+            Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "Brand New" : dto.Condition.Trim(),
+            Specifications = string.IsNullOrWhiteSpace(dto.Specifications) ? null : dto.Specifications.Trim(),
+            ShippingMethod = string.IsNullOrWhiteSpace(dto.ShippingMethod) ? null : dto.ShippingMethod.Trim(),
+            EstimatedDeliveryTime = string.IsNullOrWhiteSpace(dto.EstimatedDeliveryTime) ? null : dto.EstimatedDeliveryTime.Trim(),
+            IsFreeShipping = dto.IsFreeShipping,
+            ShippingCost = dto.ShippingCost,
+            HandlingTime = string.IsNullOrWhiteSpace(dto.HandlingTime) ? null : dto.HandlingTime.Trim(),
+            ReturnPolicy = string.IsNullOrWhiteSpace(dto.ReturnPolicy) ? null : dto.ReturnPolicy.Trim(),
+            ShippingOptions = string.IsNullOrWhiteSpace(dto.ShippingOptions) ? null : dto.ShippingOptions.Trim(),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -712,6 +803,18 @@ public class ProductService : IProductService
             KeyBenefits = product.KeyBenefits,
             GalleryImages = product.GalleryImages,
             IsBestSeller = product.IsBestSeller,
+            CountryOfOrigin = product.CountryOfOrigin,
+            ExpiryDate = product.ExpiryDate,
+            ManufactureDate = product.ManufactureDate,
+            Condition = product.Condition,
+            Specifications = product.Specifications,
+            ShippingMethod = product.ShippingMethod,
+            EstimatedDeliveryTime = product.EstimatedDeliveryTime,
+            IsFreeShipping = product.IsFreeShipping,
+            ShippingCost = product.ShippingCost,
+            HandlingTime = product.HandlingTime,
+            ReturnPolicy = product.ReturnPolicy,
+            ShippingOptions = product.ShippingOptions,
             AverageRating = avgRating,
             ReviewCount = reviewCount,
             CreatedAt = product.CreatedAt,

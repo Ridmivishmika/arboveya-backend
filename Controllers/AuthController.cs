@@ -166,8 +166,8 @@ public class AuthController : ControllerBase
 
         try
         {
-            var code = await _authService.ForgotPasswordAsync(request.Email);
-            return Ok(new { message = "A verification code has been sent to your email address.", resetCode = code });
+            await _authService.ForgotPasswordAsync(request.Email);
+            return Ok(new { message = "A verification code has been sent to your email address." });
         }
         catch (ArgumentException ex)
         {
@@ -177,6 +177,35 @@ public class AuthController : ControllerBase
         {
             _logger.LogError(ex, "Error processing forgot password for {Email}", request.Email);
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while processing your request." });
+        }
+    }
+
+    /// <summary>
+    /// Verify the OTP sent to the user's email
+    /// </summary>
+    [HttpPost("verify-otp")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public async Task<IActionResult> VerifyOtp([FromBody] VerifyOtpRequestDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        try
+        {
+            await _authService.VerifyOtpAsync(request);
+            return Ok(new { message = "OTP verified successfully." });
+        }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error verifying OTP for {Email}", request.Email);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while verifying the OTP." });
         }
     }
 

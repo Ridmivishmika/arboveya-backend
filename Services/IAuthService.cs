@@ -10,5 +10,6 @@ public interface IAuthService
     Task<UserResponseDto?> UpdateProfileAsync(Guid userId, UpdateProfileDto request);
     Task<IEnumerable<UserResponseDto>> GetAllUsersAsync(string? search = null);
     Task<string> ForgotPasswordAsync(string email);
+    Task<bool> VerifyOtpAsync(VerifyOtpRequestDto request);
     Task<bool> ResetPasswordAsync(ResetPasswordRequestDto request);
 }

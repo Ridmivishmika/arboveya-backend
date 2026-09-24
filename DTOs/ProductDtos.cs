@@ -45,6 +45,33 @@ public class CreateProductDto
 
     public bool IsBestSeller { get; set; } = false;
 
+    [MaxLength(100)]
+    public string? CountryOfOrigin { get; set; }
+
+    public DateTime? ExpiryDate { get; set; }
+
+    public DateTime? ManufactureDate { get; set; }
+
+    [MaxLength(100)]
+    public string? Condition { get; set; } = "Brand New";
+
+    public string? Specifications { get; set; }
+
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    [MaxLength(100)]
+    public string? EstimatedDeliveryTime { get; set; }
+
+    public bool IsFreeShipping { get; set; } = false;
+
+    public decimal ShippingCost { get; set; } = 0;
+
+    [MaxLength(100)]
+    public string? HandlingTime { get; set; }
+
+    public string? ReturnPolicy { get; set; }
+    public string? ShippingOptions { get; set; }
     public List<ProductVariantDto>? Variants { get; set; }
 }
 
@@ -81,6 +108,34 @@ public class UpdateProductDto
 
     public bool? IsBestSeller { get; set; }
 
+    [MaxLength(100)]
+    public string? CountryOfOrigin { get; set; }
+
+    public DateTime? ExpiryDate { get; set; }
+
+    public DateTime? ManufactureDate { get; set; }
+
+    [MaxLength(100)]
+    public string? Condition { get; set; }
+
+    public string? Specifications { get; set; }
+
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    [MaxLength(100)]
+    public string? EstimatedDeliveryTime { get; set; }
+
+    public bool? IsFreeShipping { get; set; }
+
+    public decimal? ShippingCost { get; set; }
+
+    [MaxLength(100)]
+    public string? HandlingTime { get; set; }
+
+    public string? ReturnPolicy { get; set; }
+    public string? ShippingOptions { get; set; }
+
     public List<ProductVariantDto>? Variants { get; set; }
 }
 
@@ -115,6 +170,34 @@ public class CreateSellerProductDto
     public string? KeyBenefits { get; set; }
 
     public string? GalleryImages { get; set; }
+
+    [MaxLength(100)]
+    public string? CountryOfOrigin { get; set; }
+
+    public DateTime? ExpiryDate { get; set; }
+
+    public DateTime? ManufactureDate { get; set; }
+
+    [MaxLength(100)]
+    public string? Condition { get; set; } = "Brand New";
+
+    public string? Specifications { get; set; }
+
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    [MaxLength(100)]
+    public string? EstimatedDeliveryTime { get; set; }
+
+    public bool IsFreeShipping { get; set; } = false;
+
+    public decimal ShippingCost { get; set; } = 0;
+
+    [MaxLength(100)]
+    public string? HandlingTime { get; set; }
+
+    public string? ReturnPolicy { get; set; }
+    public string? ShippingOptions { get; set; }
 
     public List<ProductVariantDto>? Variants { get; set; }
 }
@@ -153,6 +236,18 @@ public class ProductResponseDto
     public string? KeyBenefits { get; set; }
     public string? GalleryImages { get; set; }
     public bool IsBestSeller { get; set; }
+    public string? CountryOfOrigin { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public DateTime? ManufactureDate { get; set; }
+    public string? Condition { get; set; }
+    public string? Specifications { get; set; }
+    public string? ShippingMethod { get; set; }
+    public string? EstimatedDeliveryTime { get; set; }
+    public bool IsFreeShipping { get; set; }
+    public decimal ShippingCost { get; set; }
+    public string? HandlingTime { get; set; }
+    public string? ReturnPolicy { get; set; }
+    public string? ShippingOptions { get; set; }
     public double AverageRating { get; set; } = 0.0;
     public int ReviewCount { get; set; } = 0;
     public DateTime CreatedAt { get; set; }

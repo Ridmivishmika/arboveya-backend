@@ -19,7 +19,7 @@ public interface IProductService
     Task<ProductResponseDto?> GetByNameAsync(string name);
     Task<IEnumerable<ProductResponseDto>> GetRelatedAsync(Guid productId, int limit = 4);
     Task<ProductResponseDto> CreateAsync(CreateProductDto dto);
-    Task<ProductResponseDto?> UpdateAsync(Guid id, UpdateProductDto dto);
+    Task<ProductResponseDto?> UpdateAsync(Guid id, UpdateProductDto dto, bool isSeller = false);
     Task<bool> DeleteAsync(Guid id);
 
     // Seller & Approval Operations

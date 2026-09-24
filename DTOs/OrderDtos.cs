@@ -27,6 +27,11 @@ public class CreateOrderDto
 
     public string? ShippingAddress { get; set; }
 
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    public decimal? ShippingCost { get; set; }
+
     [Required(ErrorMessage = "Order must contain at least one item.")]
     [MinLength(1, ErrorMessage = "Order must contain at least one item.")]
     public List<CreateOrderItemDto> Items { get; set; } = new();
@@ -39,6 +44,19 @@ public class UpdateOrderStatusDto
 
     [MaxLength(50)]
     public string? PaymentStatus { get; set; }
+}
+
+public class UpdateOrderTrackingDto
+{
+    [Required(ErrorMessage = "Tracking number is required.")]
+    [MaxLength(150, ErrorMessage = "Tracking number cannot exceed 150 characters.")]
+    public string TrackingNumber { get; set; } = string.Empty;
+
+    [MaxLength(100, ErrorMessage = "Shipping carrier cannot exceed 100 characters.")]
+    public string? ShippingCarrier { get; set; }
+
+    [MaxLength(50)]
+    public string? OrderStatus { get; set; } = "Shipped";
 }
 
 public class OrderItemResponseDto
@@ -63,6 +81,11 @@ public class OrderResponseDto
     public string PaymentStatus { get; set; } = string.Empty;
     public string OrderStatus { get; set; } = string.Empty;
     public string PayHereOrderId { get; set; } = string.Empty;
+    public string? TrackingNumber { get; set; }
+    public string? ShippingCarrier { get; set; }
+    public string? ShippingMethod { get; set; }
+    public decimal ShippingCost { get; set; }
+    public DateTime? ShippedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<OrderItemResponseDto> Items { get; set; } = new();

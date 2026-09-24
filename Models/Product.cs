@@ -57,6 +57,35 @@ public class Product
 
     public bool IsBestSeller { get; set; } = false;
 
+    [MaxLength(100)]
+    public string? CountryOfOrigin { get; set; }
+
+    public DateTime? ExpiryDate { get; set; }
+
+    public DateTime? ManufactureDate { get; set; }
+
+    [MaxLength(100)]
+    public string? Condition { get; set; } = "Brand New";
+
+    public string? Specifications { get; set; }
+
+    [MaxLength(150)]
+    public string? ShippingMethod { get; set; }
+
+    [MaxLength(100)]
+    public string? EstimatedDeliveryTime { get; set; }
+
+    public bool IsFreeShipping { get; set; } = false;
+
+    [Column(TypeName = "decimal(18,2)")]
+    public decimal ShippingCost { get; set; } = 0;
+
+    [MaxLength(100)]
+    public string? HandlingTime { get; set; }
+
+    public string? ReturnPolicy { get; set; }
+    public string? ShippingOptions { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

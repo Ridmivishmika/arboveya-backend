@@ -183,6 +183,38 @@ public class OrdersController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Update order shipping tracking number (Seller or Admin)
+    /// </summary>
+    [HttpPut("{id:guid}/tracking")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> UpdateOrderTracking(Guid id, [FromBody] UpdateOrderTrackingDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        try
+        {
+            var updated = await _orderService.UpdateOrderTrackingAsync(id, request);
+            if (updated == null)
+            {
+                return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            }
+
+            return Ok(updated);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error updating tracking for order {OrderId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while updating order tracking." });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);

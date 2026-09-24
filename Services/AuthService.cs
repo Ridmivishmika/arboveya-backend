@@ -7,16 +7,17 @@ namespace Arboveya.Api.Services;
 
 public class AuthService : IAuthService
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Code, DateTime Expiry)> _resetCodes = new();
     private readonly AppDbContext _context;
     private readonly ITokenService _tokenService;
     private readonly ILogger<AuthService> _logger;
+    private readonly IEmailService _emailService;
 
-    public AuthService(AppDbContext context, ITokenService tokenService, ILogger<AuthService> logger)
+    public AuthService(AppDbContext context, ITokenService tokenService, ILogger<AuthService> logger, IEmailService emailService)
     {
         _context = context;
         _tokenService = tokenService;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<AuthResponseDto> RegisterAsync(RegisterRequestDto request)
@@ -183,42 +184,87 @@ public class AuthService : IAuthService
         // Generate 6-digit random code
         var resetCode = Random.Shared.Next(100000, 999999).ToString();
         var expiry = DateTime.UtcNow.AddMinutes(15);
-        _resetCodes[normalizedEmail] = (resetCode, expiry);
+        
+        user.ResetCode = resetCode;
+        user.ResetCodeExpiry = expiry;
+        await _context.SaveChangesAsync();
 
         _logger.LogInformation("Generated password reset code for {Email}: {Code}", normalizedEmail, resetCode);
+        
+        var emailBody = $"<p>Your password reset code is: <strong>{resetCode}</strong></p><p>This code will expire in 15 minutes.</p>";
+        await _emailService.SendEmailAsync(normalizedEmail, "Password Reset Code", emailBody);
+
         return resetCode;
     }
 
-    public async Task<bool> ResetPasswordAsync(ResetPasswordRequestDto request)
+    public async Task<bool> VerifyOtpAsync(VerifyOtpRequestDto request)
     {
         var normalizedEmail = request.Email.Trim().ToLowerInvariant();
-        if (!_resetCodes.TryGetValue(normalizedEmail, out var entry))
-        {
-            throw new ArgumentException("No reset code was requested for this email address or it has expired.");
-        }
-
-        if (DateTime.UtcNow > entry.Expiry)
-        {
-            _resetCodes.TryRemove(normalizedEmail, out _);
-            throw new ArgumentException("Reset code has expired. Please request a new code.");
-        }
-
-        if (entry.Code != request.ResetCode.Trim())
-        {
-            throw new ArgumentException("Invalid reset code. Please check the code and try again.");
-        }
-
         var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
+        
         if (user == null)
         {
             throw new ArgumentException("User account not found.");
         }
 
+        if (string.IsNullOrEmpty(user.ResetCode) || user.ResetCodeExpiry == null)
+        {
+            throw new ArgumentException("No reset code was requested for this email address.");
+        }
+
+        if (DateTime.UtcNow > user.ResetCodeExpiry.Value)
+        {
+            user.ResetCode = null;
+            user.ResetCodeExpiry = null;
+            await _context.SaveChangesAsync();
+            throw new ArgumentException("Reset code has expired. Please request a new code.");
+        }
+
+        if (user.ResetCode != request.ResetCode.Trim())
+        {
+            throw new ArgumentException("Invalid reset code. Please check the code and try again.");
+        }
+
+        return true;
+    }
+
+    public async Task<bool> ResetPasswordAsync(ResetPasswordRequestDto request)
+    {
+        var normalizedEmail = request.Email.Trim().ToLowerInvariant();
+        var user = await _context.Users.FirstOrDefaultAsync(u => u.Email.ToLower() == normalizedEmail);
+        
+        if (user == null)
+        {
+            throw new ArgumentException("User account not found.");
+        }
+
+        if (string.IsNullOrEmpty(user.ResetCode) || user.ResetCodeExpiry == null)
+        {
+            throw new ArgumentException("No reset code was requested for this email address.");
+        }
+
+        if (DateTime.UtcNow > user.ResetCodeExpiry.Value)
+        {
+            user.ResetCode = null;
+            user.ResetCodeExpiry = null;
+            await _context.SaveChangesAsync();
+            throw new ArgumentException("Reset code has expired. Please request a new code.");
+        }
+
+        if (user.ResetCode != request.ResetCode.Trim())
+        {
+            throw new ArgumentException("Invalid reset code. Please check the code and try again.");
+        }
+
         // Hash new password using BCrypt with workFactor 12
         user.PasswordHash = BCrypt.Net.BCrypt.EnhancedHashPassword(request.NewPassword, workFactor: 12);
+        
+        // Invalidate OTP
+        user.ResetCode = null;
+        user.ResetCodeExpiry = null;
+        
         await _context.SaveChangesAsync();
 
-        _resetCodes.TryRemove(normalizedEmail, out _);
         _logger.LogInformation("Password successfully reset for {Email}", normalizedEmail);
 
         return true;
