@@ -12,4 +12,7 @@ public interface IOrderService
     Task<IEnumerable<OrderResponseDto>> GetAllOrdersAsync(string? orderStatus = null, string? paymentStatus = null, string? search = null);
     Task<OrderResponseDto?> UpdateOrderStatusAsync(Guid id, UpdateOrderStatusDto dto);
     Task<OrderResponseDto?> UpdateOrderTrackingAsync(Guid id, UpdateOrderTrackingDto dto);
+    Task<bool> ProcessPayHereNotificationAsync(PayHereNotificationDto notification);
+    Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId);
 }
+

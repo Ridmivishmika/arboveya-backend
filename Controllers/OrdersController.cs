@@ -61,6 +61,44 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
+    /// PayHere IPN Webhook endpoint called by PayHere upon transaction completion
+    /// </summary>
+    [HttpPost("payhere-notify")]
+    [AllowAnonymous]
+    [Consumes("application/x-www-form-urlencoded", "multipart/form-data", "application/json")]
+    public async Task<IActionResult> PayHereNotify([FromForm] PayHereNotificationDto notification)
+    {
+        _logger.LogInformation("PayHere IPN webhook callback received for Order '{OrderId}'. Status: {Status}.",
+            notification.order_id, notification.status_code);
+
+        var result = await _orderService.ProcessPayHereNotificationAsync(notification);
+        if (!result)
+        {
+            return BadRequest(new { message = "Payment signature verification failed or order not found." });
+        }
+
+        return Ok();
+    }
+
+    /// <summary>
+    /// Confirm payment directly from client callback (used for instant sandbox / local feedback)
+    /// </summary>
+    [HttpPost("{id:guid}/confirm-payment")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> ConfirmPayment(Guid id, [FromBody] ConfirmPaymentRequestDto? dto)
+    {
+        var updatedOrder = await _orderService.ConfirmOrderPaymentAsync(id, dto?.PaymentId);
+        if (updatedOrder == null)
+        {
+            return NotFound(new { message = $"Order with ID '{id}' was not found." });
+        }
+
+        return Ok(updatedOrder);
+    }
+
+    /// <summary>
     /// Get order by ID (Customer can view their own order; Admin can view any)
     /// </summary>
     [HttpGet("{id:guid}")]

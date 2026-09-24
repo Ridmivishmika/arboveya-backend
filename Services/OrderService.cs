@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text;
+using System.Globalization;
 using Arboveya.Api.Data;
 using Arboveya.Api.DTOs;
 using Arboveya.Api.Models;
@@ -8,11 +11,13 @@ namespace Arboveya.Api.Services;
 public class OrderService : IOrderService
 {
     private readonly AppDbContext _context;
+    private readonly IConfiguration _configuration;
     private readonly ILogger<OrderService> _logger;
 
-    public OrderService(AppDbContext context, ILogger<OrderService> logger)
+    public OrderService(AppDbContext context, IConfiguration configuration, ILogger<OrderService> logger)
     {
         _context = context;
+        _configuration = configuration;
         _logger = logger;
     }
 
@@ -155,7 +160,7 @@ public class OrderService : IOrderService
                 ShippingMethod = shippingMethod,
                 ShippingCost = shippingCost,
                 TotalAmount = finalTotal > 0 ? finalTotal : 49.98m,
-                PaymentStatus = "Paid",
+                PaymentStatus = "Pending",
                 OrderStatus = "Processing",
                 PayHereOrderId = payHereOrderId,
                 CreatedAt = DateTime.UtcNow,
@@ -170,7 +175,55 @@ public class OrderService : IOrderService
             _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created successfully for {CustomerEmail}. Total: {TotalAmount:C}.",
                 order.Id, order.PayHereOrderId, order.CustomerEmail, order.TotalAmount);
 
-            return MapToDto(order);
+            var resp = MapToDto(order);
+
+            // Populate PayHere details for client-side checkout
+            var merchantId = _configuration["PayHere:MerchantId"] 
+                ?? _configuration["PAYHERE_MERCHANT_ID"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID") 
+                ?? "1211149";
+            if (merchantId == "your_payhere_merchant_id") merchantId = "1211149";
+
+            var merchantSecret = _configuration["PayHere:MerchantSecret"] 
+                ?? _configuration["PAYHERE_MERCHANT_SECRET"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET") 
+                ?? "4UPxLq74JtT4LUPxLq74JtT";
+            if (merchantSecret == "your_payhere_merchant_secret") merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+
+            var isSandbox = (_configuration["PayHere:IsSandbox"] 
+                ?? _configuration["PAYHERE_SANDBOX"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_SANDBOX") 
+                ?? "true").Equals("true", StringComparison.OrdinalIgnoreCase);
+
+            var notifyUrl = _configuration["PayHere:NotifyUrl"] 
+                ?? _configuration["PAYHERE_NOTIFY_URL"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_NOTIFY_URL");
+
+            var nameParts = customerName.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
+            var firstName = nameParts.Length > 0 ? nameParts[0].Trim() : "Valued";
+            var lastName = nameParts.Length > 1 ? nameParts[1].Trim() : "Customer";
+            var payHereHash = GeneratePayHereHash(merchantId, order.PayHereOrderId, order.TotalAmount, "LKR", merchantSecret);
+
+            resp.PayHereDetails = new PayHereCheckoutDetailsDto
+            {
+                Sandbox = isSandbox,
+                MerchantId = merchantId,
+                OrderId = order.PayHereOrderId,
+                Items = $"Arboveya Herbal Order ({order.Items.Count} item(s))",
+                Amount = order.TotalAmount,
+                Currency = "LKR",
+                Hash = payHereHash,
+                FirstName = firstName,
+                LastName = lastName,
+                Email = customerEmail,
+                Phone = "",
+                Address = shippingAddress,
+                City = "Colombo",
+                Country = "Sri Lanka",
+                NotifyUrl = notifyUrl
+            };
+
+            return resp;
         }
         catch (Exception ex)
         {
@@ -395,5 +448,105 @@ public class OrderService : IOrderService
                 UnitPrice = i.UnitPrice
             }).ToList()
         };
+    }
+
+    public async Task<bool> ProcessPayHereNotificationAsync(PayHereNotificationDto notification)
+    {
+        if (string.IsNullOrWhiteSpace(notification.order_id))
+        {
+            _logger.LogWarning("PayHere IPN received without order_id.");
+            return false;
+        }
+
+        var merchantId = _configuration["PayHere:MerchantId"] 
+            ?? _configuration["PAYHERE_MERCHANT_ID"] 
+            ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID") 
+            ?? "1211149";
+        if (merchantId == "your_payhere_merchant_id") merchantId = "1211149";
+
+        var merchantSecret = _configuration["PayHere:MerchantSecret"] 
+            ?? _configuration["PAYHERE_MERCHANT_SECRET"] 
+            ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET") 
+            ?? "4UPxLq74JtT4LUPxLq74JtT";
+        if (merchantSecret == "your_payhere_merchant_secret") merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+
+        // Signature verification:
+        // MD5(merchant_id + order_id + payhere_amount + payhere_currency + status_code + strtoupper(md5(merchant_secret)))
+        if (!string.IsNullOrWhiteSpace(notification.md5sig) && !string.IsNullOrWhiteSpace(notification.payhere_amount))
+        {
+            var hashedSecret = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(merchantSecret)))
+                .Replace("-", "").ToUpperInvariant();
+            var rawSig = $"{merchantId}{notification.order_id}{notification.payhere_amount}{notification.payhere_currency}{notification.status_code}{hashedSecret}";
+            var computedSig = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(rawSig)))
+                .Replace("-", "").ToUpperInvariant();
+
+            if (!string.Equals(computedSig, notification.md5sig, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("PayHere IPN MD5 signature mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+                    notification.order_id, computedSig, notification.md5sig);
+                return false;
+            }
+        }
+
+        var order = await _context.Orders
+            .Include(o => o.Items)
+            .FirstOrDefaultAsync(o => o.PayHereOrderId == notification.order_id);
+
+        if (order == null)
+        {
+            _logger.LogWarning("Order with PayHereOrderId '{OrderId}' not found.", notification.order_id);
+            return false;
+        }
+
+        if (notification.status_code == 2)
+        {
+            order.PaymentStatus = "Paid";
+            order.OrderStatus = "Processing";
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Order '{OrderId}' successfully marked Paid via PayHere IPN notification. PaymentId: {PaymentId}.",
+                order.Id, notification.payment_id);
+        }
+        else if (notification.status_code == -1 || notification.status_code == -2)
+        {
+            order.PaymentStatus = "Failed";
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            _logger.LogWarning("Order '{OrderId}' payment failed with status code {Code}: {Message}.",
+                order.Id, notification.status_code, notification.status_message);
+        }
+
+        return true;
+    }
+
+    public async Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId)
+    {
+        var order = await _context.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+
+        if (order == null) return null;
+
+        order.PaymentStatus = "Paid";
+        order.OrderStatus = "Processing";
+        order.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Order '{OrderId}' payment confirmed by client callback. PaymentId: {PaymentId}.",
+            order.Id, paymentId);
+
+        return MapToDto(order);
+    }
+
+    private static string GeneratePayHereHash(string merchantId, string orderId, decimal amount, string currency, string merchantSecret)
+    {
+        var formattedAmount = amount.ToString("0.00", CultureInfo.InvariantCulture);
+        var hashedSecret = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(merchantSecret)))
+            .Replace("-", "").ToUpperInvariant();
+
+        var rawString = $"{merchantId}{orderId}{formattedAmount}{currency}{hashedSecret}";
+        return BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(rawString)))
+            .Replace("-", "").ToUpperInvariant();
     }
 }

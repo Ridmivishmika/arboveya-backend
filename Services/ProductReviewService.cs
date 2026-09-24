@@ -178,9 +178,10 @@ public class ProductReviewService : IProductReviewService
         }
 
         var cleanComment = dto.Comment.Trim();
+        var defaultAuthor = $"{user.FirstName} {user.LastName}".Trim();
         var authorName = !string.IsNullOrWhiteSpace(dto.AuthorName) 
             ? dto.AuthorName.Trim() 
-            : (user != null ? $"{user.FirstName} {user.LastName}".Trim() : "Verified Customer");
+            : (!string.IsNullOrWhiteSpace(defaultAuthor) ? defaultAuthor : "Verified Customer");
         var storedComment = $"[{authorName}] {cleanComment}";
 
         // Check if there is already a review by this user for this product
@@ -193,7 +194,7 @@ public class ProductReviewService : IProductReviewService
             existingReview.Comment = storedComment;
             existingReview.IsApproved = true;
             existingReview.UpdatedAt = DateTime.UtcNow;
-            if (user != null) existingReview.UserId = user.Id;
+            existingReview.UserId = user.Id;
             await _context.SaveChangesAsync();
 
             _logger.LogInformation("Existing review ({Id}) updated by user {UserId} ({Author}) for product '{ProductName}'.",

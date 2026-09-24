@@ -89,4 +89,46 @@ public class OrderResponseDto
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public List<OrderItemResponseDto> Items { get; set; } = new();
+    public PayHereCheckoutDetailsDto? PayHereDetails { get; set; }
 }
+
+public class PayHereCheckoutDetailsDto
+{
+    public bool Sandbox { get; set; } = true;
+    public string MerchantId { get; set; } = string.Empty;
+    public string OrderId { get; set; } = string.Empty;
+    public string Items { get; set; } = string.Empty;
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "LKR";
+    public string Hash { get; set; } = string.Empty;
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+    public string Email { get; set; } = string.Empty;
+    public string Phone { get; set; } = string.Empty;
+    public string Address { get; set; } = string.Empty;
+    public string City { get; set; } = string.Empty;
+    public string Country { get; set; } = string.Empty;
+    public string? NotifyUrl { get; set; }
+}
+
+public class PayHereNotificationDto
+{
+    public string? merchant_id { get; set; }
+    public string? order_id { get; set; }
+    public string? payment_id { get; set; }
+    public string? payhere_amount { get; set; }
+    public string? payhere_currency { get; set; }
+    public int status_code { get; set; }
+    public string? md5sig { get; set; }
+    public string? custom_1 { get; set; }
+    public string? custom_2 { get; set; }
+    public string? status_message { get; set; }
+    public string? method { get; set; }
+}
+
+public class ConfirmPaymentRequestDto
+{
+    public string? PayHereOrderId { get; set; }
+    public string? PaymentId { get; set; }
+}
+
