@@ -295,15 +295,14 @@ using (var scope = app.Services.CreateScope())
 }
 
 // 7. Configure HTTP Request Pipeline
-if (app.Environment.IsDevelopment())
+// Enable Swagger in all environments (Development & Production)
+app.UseSwagger();
+app.UseSwaggerUI(c =>
 {
-    app.UseSwagger();
-    app.UseSwaggerUI(c =>
-    {
-        c.SwaggerEndpoint("/swagger/v1/swagger.json", "Arboveya Auth API v1");
-        c.RoutePrefix = "swagger";
-    });
-}
+    c.SwaggerEndpoint("/swagger/v1/swagger.json", "Arboveya Auth API v1");
+    c.RoutePrefix = "swagger";
+});
+
 
 app.UseCors("AllowAll");
 app.UseStaticFiles();
