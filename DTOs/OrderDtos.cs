@@ -26,6 +26,12 @@ public class CreateOrderDto
     public string? CustomerEmail { get; set; }
 
     public string? ShippingAddress { get; set; }
+    
+    [MaxLength(100)]
+    public string? Country { get; set; }
+
+    [MaxLength(50)]
+    public string? CustomerPhone { get; set; }
 
     [MaxLength(150)]
     public string? ShippingMethod { get; set; }

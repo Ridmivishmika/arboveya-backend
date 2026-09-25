@@ -244,6 +244,11 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingCost"" numeric(18,2) DEFAULT 0;
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippedAt"" timestamp with time zone;
             ALTER TABLE ""BlogPosts"" ALTER COLUMN ""ImageUrl"" TYPE text;
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankName"" character varying(150);
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankAccountName"" character varying(150);
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankAccountNumber"" character varying(100);
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankBranch"" character varying(100);
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankRoutingCode"" character varying(100);
             DELETE FROM ""Users"" WHERE ""Email"" IN ('test_arboveya_check@example.com', 'test_cleanup_user@example.com');
         ");
 

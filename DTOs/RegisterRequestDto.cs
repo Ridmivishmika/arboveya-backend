@@ -28,7 +28,22 @@ public class RegisterRequestDto
     [StringLength(100)]
     public string? Nationality { get; set; }
 
-    [RegularExpression(@"^[0-9]+$", ErrorMessage = "Phone number must contain only numbers")]
-    [StringLength(20, MinimumLength = 7, ErrorMessage = "Phone number must be between 7 and 20 digits")]
+    [RegularExpression(@"^[+]?[0-9\s-()]+$", ErrorMessage = "Phone number can only contain numbers, spaces, and standard phone symbols (+, -, ()).")]
+    [StringLength(30, MinimumLength = 7, ErrorMessage = "Phone number must be between 7 and 30 characters")]
     public string? PhoneNumber { get; set; }
+
+    [StringLength(150, ErrorMessage = "Bank name cannot exceed 150 characters")]
+    public string? BankName { get; set; }
+
+    [StringLength(150, ErrorMessage = "Bank account name cannot exceed 150 characters")]
+    public string? BankAccountName { get; set; }
+
+    [StringLength(100, ErrorMessage = "Bank account number cannot exceed 100 characters")]
+    public string? BankAccountNumber { get; set; }
+
+    [StringLength(100, ErrorMessage = "Bank branch cannot exceed 100 characters")]
+    public string? BankBranch { get; set; }
+
+    [StringLength(100, ErrorMessage = "Bank routing code cannot exceed 100 characters")]
+    public string? BankRoutingCode { get; set; }
 }

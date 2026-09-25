@@ -163,6 +163,11 @@ public class AdminController : ControllerBase
                     Nationality = u.Nationality,
                     PhoneNumber = u.PhoneNumber,
                     IsSellerApproved = u.IsSellerApproved,
+                    BankName = u.BankName,
+                    BankAccountName = u.BankAccountName,
+                    BankAccountNumber = u.BankAccountNumber,
+                    BankBranch = u.BankBranch,
+                    BankRoutingCode = u.BankRoutingCode,
                     CreatedAt = u.CreatedAt
                 })
                 .ToListAsync();
@@ -173,6 +178,49 @@ public class AdminController : ControllerBase
         {
             _logger.LogError(ex, "Unexpected error retrieving sellers list.");
             return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while retrieving sellers." });
+        }
+    }
+
+    /// <summary>
+    /// Retrieve single seller profile details including bank account details (Admin only)
+    /// </summary>
+    [HttpGet("sellers/{id:guid}")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(UserResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetSellerById(Guid id)
+    {
+        try
+        {
+            var seller = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == id && u.Role == "Seller");
+            if (seller == null)
+            {
+                return NotFound(new { message = $"Seller with ID '{id}' was not found." });
+            }
+
+            return Ok(new UserResponseDto
+            {
+                Id = seller.Id,
+                FirstName = seller.FirstName,
+                LastName = seller.LastName,
+                Email = seller.Email,
+                Role = seller.Role,
+                Address = seller.Address,
+                Nationality = seller.Nationality,
+                PhoneNumber = seller.PhoneNumber,
+                IsSellerApproved = seller.IsSellerApproved,
+                BankName = seller.BankName,
+                BankAccountName = seller.BankAccountName,
+                BankAccountNumber = seller.BankAccountNumber,
+                BankBranch = seller.BankBranch,
+                BankRoutingCode = seller.BankRoutingCode,
+                CreatedAt = seller.CreatedAt
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error retrieving seller '{SellerId}'.", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while retrieving seller." });
         }
     }
 
@@ -210,6 +258,11 @@ public class AdminController : ControllerBase
                 Nationality = seller.Nationality,
                 PhoneNumber = seller.PhoneNumber,
                 IsSellerApproved = seller.IsSellerApproved,
+                BankName = seller.BankName,
+                BankAccountName = seller.BankAccountName,
+                BankAccountNumber = seller.BankAccountNumber,
+                BankBranch = seller.BankBranch,
+                BankRoutingCode = seller.BankRoutingCode,
                 CreatedAt = seller.CreatedAt
             });
         }

@@ -39,6 +39,21 @@ public class User
 
     public bool IsSellerApproved { get; set; } = false;
 
+    [MaxLength(150)]
+    public string? BankName { get; set; }
+
+    [MaxLength(150)]
+    public string? BankAccountName { get; set; }
+
+    [MaxLength(100)]
+    public string? BankAccountNumber { get; set; }
+
+    [MaxLength(100)]
+    public string? BankBranch { get; set; }
+
+    [MaxLength(100)]
+    public string? BankRoutingCode { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     [MaxLength(10)]

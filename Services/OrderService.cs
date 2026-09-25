@@ -13,12 +13,35 @@ public class OrderService : IOrderService
     private readonly AppDbContext _context;
     private readonly IConfiguration _configuration;
     private readonly ILogger<OrderService> _logger;
+    private readonly IEmailService _emailService;
 
-    public OrderService(AppDbContext context, IConfiguration configuration, ILogger<OrderService> logger)
+    private static readonly HashSet<string> RestrictedCountries = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Asian countries
+        "Sri Lanka", "India", "China", "Japan", "Pakistan", "Bangladesh", "Indonesia", "Philippines",
+        "Vietnam", "Thailand", "Myanmar", "Malaysia", "Singapore", "Nepal", "Cambodia", "Laos",
+        "Bhutan", "Maldives", "South Korea", "North Korea", "Korea", "Taiwan", "Hong Kong", "Mongolia",
+        "Kazakhstan", "Uzbekistan", "Turkmenistan", "Kyrgyzstan", "Tajikistan", "Afghanistan",
+        "Iran", "Iraq", "Saudi Arabia", "Yemen", "Syria", "Jordan", "United Arab Emirates", "UAE",
+        "Israel", "Palestine", "Lebanon", "Oman", "Kuwait", "Qatar", "Bahrain", "Armenia", "Azerbaijan",
+        "Georgia", "Macau", "Brunei", "Timor-Leste", "Asia",
+        // African countries
+        "Nigeria", "Ethiopia", "Egypt", "Democratic Republic of the Congo", "DR Congo", "Congo",
+        "Tanzania", "South Africa", "Kenya", "Uganda", "Sudan", "Morocco", "Angola", "Mozambique",
+        "Ghana", "Madagascar", "Ivory Coast", "Cote d'Ivoire", "Cameroon", "Niger", "Mali",
+        "Burkina Faso", "Malawi", "Zambia", "Chad", "Somalia", "Senegal", "Zimbabwe", "Guinea",
+        "Rwanda", "Benin", "Burundi", "Tunisia", "South Sudan", "Togo", "Sierra Leone", "Libya",
+        "Liberia", "Central African Republic", "Mauritania", "Eritrea", "Namibia", "Gambia", "Botswana",
+        "Gabon", "Lesotho", "Guinea-Bissau", "Equatorial Guinea", "Mauritius", "Eswatini", "Swaziland",
+        "Djibouti", "Comoros", "Cape Verde", "Cabo Verde", "Sao Tome and Principe", "Seychelles", "Africa"
+    };
+
+    public OrderService(AppDbContext context, IConfiguration configuration, ILogger<OrderService> logger, IEmailService emailService)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
+        _emailService = emailService;
     }
 
     public async Task<OrderResponseDto> CreateOrderAsync(Guid? userId, CreateOrderDto dto)
@@ -91,6 +114,29 @@ public class OrderService : IOrderService
             }
         }
 
+        // Validate Country restriction: buyers only without Asian and African countries
+        if (!string.IsNullOrWhiteSpace(dto.Country))
+        {
+            var cleanCountry = dto.Country.Trim();
+            if (RestrictedCountries.Contains(cleanCountry))
+            {
+                throw new ArgumentException($"Orders cannot be delivered to '{cleanCountry}'. Arboveya serves buyers exclusively in countries outside Asia and Africa (Europe, North America, South America, and Oceania).");
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(shippingAddress))
+        {
+            foreach (var restrictedCountry in RestrictedCountries)
+            {
+                var addressParts = shippingAddress.Split(new[] { ',', '\n', '\r', ';' }, StringSplitOptions.RemoveEmptyEntries)
+                    .Select(p => p.Trim());
+                if (addressParts.Any(part => string.Equals(part, restrictedCountry, StringComparison.OrdinalIgnoreCase)))
+                {
+                    throw new ArgumentException($"Orders cannot be delivered to '{restrictedCountry}'. Arboveya serves buyers exclusively in countries outside Asia and Africa (Europe, North America, South America, and Oceania).");
+                }
+            }
+        }
+
         // 2. Execute order placement with transactional integrity
         await using var transaction = await _context.Database.BeginTransactionAsync();
         try
@@ -102,14 +148,14 @@ public class OrderService : IOrderService
 
             foreach (var itemDto in dto.Items)
             {
-                // 1. Try finding by exact ProductId
-                var product = await _context.Products.FindAsync(itemDto.ProductId);
+                // 1. Try finding by exact ProductId with Seller details
+                var product = await _context.Products.Include(p => p.Seller).FirstOrDefaultAsync(p => p.Id == itemDto.ProductId);
 
                 // 2. If not found by GUID, try finding by ProductName if provided
                 if (product == null && !string.IsNullOrWhiteSpace(itemDto.ProductName))
                 {
                     var cleanName = itemDto.ProductName.Trim().ToLower();
-                    product = await _context.Products.FirstOrDefaultAsync(p => p.Name.ToLower() == cleanName);
+                    product = await _context.Products.Include(p => p.Seller).FirstOrDefaultAsync(p => p.Name.ToLower() == cleanName);
                 }
 
                 if (product == null)
@@ -174,6 +220,114 @@ public class OrderService : IOrderService
 
             _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created successfully for {CustomerEmail}. Total: {TotalAmount:C}.",
                 order.Id, order.PayHereOrderId, order.CustomerEmail, order.TotalAmount);
+
+            // Send notification email to each seller who has products in this order
+            try
+            {
+                var sellerGroups = orderItems
+                    .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
+                    .GroupBy(i => i.Product!.Seller!);
+
+                foreach (var group in sellerGroups)
+                {
+                    var seller = group.Key;
+                    var sellerItems = group.ToList();
+                    var sellerSubtotal = sellerItems.Sum(si => si.UnitPrice * si.Quantity);
+
+                    var itemsHtml = new StringBuilder();
+                    foreach (var item in sellerItems)
+                    {
+                        var pName = item.Product?.Name ?? "Botanical Product";
+                        itemsHtml.Append($@"
+                            <tr style=""border-bottom: 1px solid #e5ede6;"">
+                                <td style=""padding: 10px; font-weight: 500; color: #1c3f24;"">{System.Net.WebUtility.HtmlEncode(pName)}</td>
+                                <td style=""padding: 10px; text-align: center; color: #556b59;"">{item.Quantity}</td>
+                                <td style=""padding: 10px; text-align: right; color: #556b59;"">${item.UnitPrice:F2}</td>
+                                <td style=""padding: 10px; text-align: right; font-weight: 600; color: #1c3f24;"">${(item.UnitPrice * item.Quantity):F2}</td>
+                            </tr>");
+                    }
+
+                    var bankDetailsHtml = !string.IsNullOrWhiteSpace(seller.BankAccountNumber)
+                        ? $@"<div style=""background: #edf5ee; border-left: 4px solid #24492d; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
+                                <strong style=""color: #1c3f24; font-size: 13px;"">Disbursement Bank Account:</strong>
+                                <p style=""margin: 4px 0 0 0; font-size: 12px; color: #2e4d38; line-height: 1.5;"">
+                                    <strong>Bank:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankName ?? "Registered Bank")}<br/>
+                                    <strong>Account Name:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountName ?? (seller.FirstName + " " + seller.LastName))}<br/>
+                                    <strong>Account Number:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountNumber)}<br/>
+                                    {(string.IsNullOrWhiteSpace(seller.BankBranch) ? "" : $"<strong>Branch / Swift:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankBranch)}<br/>")}
+                                    Funds will be disbursed to your registered bank account according to standard vendor settlement cycles.
+                                </p>
+                             </div>"
+                        : @"<div style=""background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
+                                <strong style=""color: #92400e; font-size: 13px;"">Bank Details Required:</strong>
+                                <p style=""margin: 4px 0 0 0; font-size: 12px; color: #b45309; line-height: 1.5;"">
+                                    Please ensure your bank account details are up to date in your Seller Studio profile to receive automated vendor disbursements for this sale.
+                                </p>
+                             </div>";
+
+                    var emailSubject = $"[Arboveya] New Order Received! Order #{order.PayHereOrderId}";
+                    var emailHtml = $@"
+                        <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
+                            <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
+                                <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                                <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Herbal & Botanical Marketplace</p>
+                            </div>
+                            <div style=""padding: 24px 28px;"">
+                                <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">New Order Received!</h2>
+                                <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                    Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
+                                    A customer has placed an order containing botanical product(s) from your store.
+                                </p>
+
+                                <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
+                                    <div><strong>Order Reference:</strong> <span style=""font-family: monospace; color: #1c3f24;"">{order.PayHereOrderId}</span></div>
+                                    <div><strong>Order Date:</strong> {order.CreatedAt:MMMM dd, yyyy HH:mm} UTC</div>
+                                    <div><strong>Buyer:</strong> {System.Net.WebUtility.HtmlEncode(order.CustomerName)} ({System.Net.WebUtility.HtmlEncode(order.CustomerEmail)})</div>
+                                    <div><strong>Shipping Destination:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingAddress)}</div>
+                                    <div><strong>Shipping Method:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingMethod ?? "Standard Shipping")}</div>
+                                </div>
+
+                                <h3 style=""color: #1c3f24; font-size: 14px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;"">Ordered Items</h3>
+                                <table style=""width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;"">
+                                    <thead>
+                                        <tr style=""background: #f0f5f1; color: #1c3f24; text-align: left;"">
+                                            <th style=""padding: 10px; border-radius: 4px 0 0 4px;"">Item</th>
+                                            <th style=""padding: 10px; text-align: center;"">Qty</th>
+                                            <th style=""padding: 10px; text-align: right;"">Price</th>
+                                            <th style=""padding: 10px; text-align: right; border-radius: 0 4px 4px 0;"">Subtotal</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {itemsHtml}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr>
+                                            <td colspan=""3"" style=""padding: 12px 10px; text-align: right; font-weight: bold; color: #1c3f24;"">Seller Earnings:</td>
+                                            <td style=""padding: 12px 10px; text-align: right; font-weight: bold; font-size: 15px; color: #1c3f24;"">${sellerSubtotal:F2}</td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+
+                                {bankDetailsHtml}
+
+                                <div style=""margin-top: 24px; text-align: center;"">
+                                    <p style=""font-size: 12px; color: #6b7280; margin-bottom: 8px;"">Please prepare and dispatch the botanical remedies according to your handling schedule.</p>
+                                </div>
+                            </div>
+                            <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                                &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            </div>
+                        </div>";
+
+                    await _emailService.SendEmailAsync(seller.Email, emailSubject, emailHtml);
+                    _logger.LogInformation("Sent new order notification email for order '{OrderId}' to seller '{SellerEmail}'.",
+                        order.Id, seller.Email);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send seller order notification email(s) for order '{OrderId}'.", order.Id);
+            }
 
             var resp = MapToDto(order);
 

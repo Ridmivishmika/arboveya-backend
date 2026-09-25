@@ -33,10 +33,10 @@ public class AuthService : IAuthService
             throw new InvalidOperationException("An account with this email address already exists.");
         }
 
-        // Validate phone number contains only numeric digits if provided
-        if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !request.PhoneNumber.Trim().All(char.IsDigit))
+        // Validate phone number format if provided
+        if (!string.IsNullOrWhiteSpace(request.PhoneNumber) && !System.Text.RegularExpressions.Regex.IsMatch(request.PhoneNumber.Trim(), @"^[+]?[0-9\s-()]+$"))
         {
-            throw new ArgumentException("Phone number must contain only numbers (digits 0-9).");
+            throw new ArgumentException("Phone number can only contain numbers, spaces, and standard phone symbols (+, -, ()).");
         }
 
         // Securely hash/encrypt password using BCrypt with workFactor 12 and enhanced salt
@@ -60,6 +60,11 @@ public class AuthService : IAuthService
             Address = request.Address?.Trim(),
             Nationality = request.Nationality?.Trim(),
             PhoneNumber = request.PhoneNumber?.Trim(),
+            BankName = request.BankName?.Trim(),
+            BankAccountName = request.BankAccountName?.Trim(),
+            BankAccountNumber = request.BankAccountNumber?.Trim(),
+            BankBranch = request.BankBranch?.Trim(),
+            BankRoutingCode = request.BankRoutingCode?.Trim(),
             CreatedAt = DateTime.UtcNow
         };
 
@@ -145,6 +150,31 @@ public class AuthService : IAuthService
         if (request.PhoneNumber != null)
         {
             user.PhoneNumber = string.IsNullOrWhiteSpace(request.PhoneNumber) ? null : request.PhoneNumber.Trim();
+        }
+
+        if (request.BankName != null)
+        {
+            user.BankName = string.IsNullOrWhiteSpace(request.BankName) ? null : request.BankName.Trim();
+        }
+
+        if (request.BankAccountName != null)
+        {
+            user.BankAccountName = string.IsNullOrWhiteSpace(request.BankAccountName) ? null : request.BankAccountName.Trim();
+        }
+
+        if (request.BankAccountNumber != null)
+        {
+            user.BankAccountNumber = string.IsNullOrWhiteSpace(request.BankAccountNumber) ? null : request.BankAccountNumber.Trim();
+        }
+
+        if (request.BankBranch != null)
+        {
+            user.BankBranch = string.IsNullOrWhiteSpace(request.BankBranch) ? null : request.BankBranch.Trim();
+        }
+
+        if (request.BankRoutingCode != null)
+        {
+            user.BankRoutingCode = string.IsNullOrWhiteSpace(request.BankRoutingCode) ? null : request.BankRoutingCode.Trim();
         }
 
         await _context.SaveChangesAsync();
@@ -283,6 +313,11 @@ public class AuthService : IAuthService
             Nationality = user.Nationality,
             PhoneNumber = user.PhoneNumber,
             IsSellerApproved = user.IsSellerApproved,
+            BankName = user.BankName,
+            BankAccountName = user.BankAccountName,
+            BankAccountNumber = user.BankAccountNumber,
+            BankBranch = user.BankBranch,
+            BankRoutingCode = user.BankRoutingCode,
             CreatedAt = user.CreatedAt
         };
     }

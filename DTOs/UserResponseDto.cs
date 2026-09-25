@@ -12,5 +12,10 @@ public class UserResponseDto
     public string? Nationality { get; set; }
     public string? PhoneNumber { get; set; }
     public bool IsSellerApproved { get; set; }
+    public string? BankName { get; set; }
+    public string? BankAccountName { get; set; }
+    public string? BankAccountNumber { get; set; }
+    public string? BankBranch { get; set; }
+    public string? BankRoutingCode { get; set; }
     public DateTime CreatedAt { get; set; }
 }

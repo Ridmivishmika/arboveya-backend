@@ -16,7 +16,22 @@ public class UpdateProfileDto
     [MaxLength(50, ErrorMessage = "Nationality cannot exceed 50 characters.")]
     public string? Nationality { get; set; }
 
-    [MaxLength(20, ErrorMessage = "Phone number cannot exceed 20 characters.")]
+    [MaxLength(30, ErrorMessage = "Phone number cannot exceed 30 characters.")]
     [RegularExpression(@"^[0-9\+\-\s\(\)]*$", ErrorMessage = "Phone number can only contain digits, spaces, and standard phone symbols (+, -, ()).")]
     public string? PhoneNumber { get; set; }
+
+    [MaxLength(150, ErrorMessage = "Bank name cannot exceed 150 characters.")]
+    public string? BankName { get; set; }
+
+    [MaxLength(150, ErrorMessage = "Bank account name cannot exceed 150 characters.")]
+    public string? BankAccountName { get; set; }
+
+    [MaxLength(100, ErrorMessage = "Bank account number cannot exceed 100 characters.")]
+    public string? BankAccountNumber { get; set; }
+
+    [MaxLength(100, ErrorMessage = "Bank branch cannot exceed 100 characters.")]
+    public string? BankBranch { get; set; }
+
+    [MaxLength(100, ErrorMessage = "Bank routing code cannot exceed 100 characters.")]
+    public string? BankRoutingCode { get; set; }
 }
