@@ -20,7 +20,6 @@ public class SiteSettingsService : ISiteSettingsService
     public async Task<SiteSettingsResponseDto> GetSettingsAsync()
     {
         var settings = await _context.SiteSettings
-            .AsNoTracking()
             .FirstOrDefaultAsync(s => s.Id == SingletonId);
 
         if (settings == null)
@@ -34,13 +33,32 @@ public class SiteSettingsService : ISiteSettingsService
                 AboutUsContent = "Arboveya was created with a simple mission — to bring the healing power of nature to everyday life. We carefully select the finest herbs and ingredients from trusted sources to create premium wellness products that promote a healthier and balanced lifestyle.\n\nWe believe in purity, transparency, and sustainability in everything we do.",
                 Mission = "To provide premium herbal wellness solutions that support healthier lifestyles worldwide.",
                 Vision = "To become a trusted global herbal wellness brand.",
-                FacebookLink = "https://facebook.com/arboveya",
-                WhatsAppNumber = "+94771234567",
+                FacebookLink = "https://www.facebook.com/share/1DspKR2vtm/",
+                WhatsAppNumber = "0717981355",
                 UpdatedAt = DateTime.UtcNow
             };
 
             _context.SiteSettings.Add(settings);
             await _context.SaveChangesAsync();
+        }
+        else
+        {
+            bool modified = false;
+            if (settings.WhatsAppNumber == "+94771234567" || string.IsNullOrWhiteSpace(settings.WhatsAppNumber))
+            {
+                settings.WhatsAppNumber = "0717981355";
+                modified = true;
+            }
+            if (settings.FacebookLink == "https://facebook.com/arboveya" || string.IsNullOrWhiteSpace(settings.FacebookLink))
+            {
+                settings.FacebookLink = "https://www.facebook.com/share/1DspKR2vtm/";
+                modified = true;
+            }
+            if (modified)
+            {
+                settings.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+            }
         }
 
         return MapToDto(settings);
