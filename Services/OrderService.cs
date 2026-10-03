@@ -349,31 +349,70 @@ public class OrderService : IOrderService
                 ?? Environment.GetEnvironmentVariable("PAYHERE_SANDBOX") 
                 ?? "true").Equals("true", StringComparison.OrdinalIgnoreCase);
 
+            var currency = (_configuration["PayHere:Currency"] 
+                ?? _configuration["PAYHERE_CURRENCY"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_CURRENCY") 
+                ?? "USD").Trim().ToUpperInvariant();
+
+            var returnUrl = _configuration["PayHere:ReturnUrl"] 
+                ?? _configuration["PAYHERE_RETURN_URL"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_RETURN_URL");
+
+            var cancelUrl = _configuration["PayHere:CancelUrl"] 
+                ?? _configuration["PAYHERE_CANCEL_URL"] 
+                ?? Environment.GetEnvironmentVariable("PAYHERE_CANCEL_URL");
+
             var notifyUrl = _configuration["PayHere:NotifyUrl"] 
                 ?? _configuration["PAYHERE_NOTIFY_URL"] 
                 ?? Environment.GetEnvironmentVariable("PAYHERE_NOTIFY_URL");
 
+            var actionUrl = isSandbox 
+                ? "https://sandbox.payhere.lk/pay/checkout" 
+                : "https://www.payhere.lk/pay/checkout";
+
             var nameParts = customerName.Split(' ', 2, StringSplitOptions.RemoveEmptyEntries);
             var firstName = nameParts.Length > 0 ? nameParts[0].Trim() : "Valued";
             var lastName = nameParts.Length > 1 ? nameParts[1].Trim() : "Customer";
-            var payHereHash = GeneratePayHereHash(merchantId, order.PayHereOrderId, order.TotalAmount, "LKR", merchantSecret);
+
+            var customerPhone = !string.IsNullOrWhiteSpace(dto.CustomerPhone)
+                ? dto.CustomerPhone.Trim()
+                : "0771234567";
+
+            var customerCountry = !string.IsNullOrWhiteSpace(dto.Country)
+                ? dto.Country.Trim()
+                : "United States";
+
+            var city = "Colombo";
+            if (!string.IsNullOrWhiteSpace(shippingAddress))
+            {
+                var addrParts = shippingAddress.Split(',', StringSplitOptions.RemoveEmptyEntries);
+                if (addrParts.Length > 1)
+                {
+                    city = addrParts[1].Trim();
+                }
+            }
+
+            var payHereHash = GeneratePayHereHash(merchantId, order.PayHereOrderId, order.TotalAmount, currency, merchantSecret);
 
             resp.PayHereDetails = new PayHereCheckoutDetailsDto
             {
                 Sandbox = isSandbox,
+                ActionUrl = actionUrl,
                 MerchantId = merchantId,
                 OrderId = order.PayHereOrderId,
                 Items = $"Arboveya Herbal Order ({order.Items.Count} item(s))",
                 Amount = order.TotalAmount,
-                Currency = "LKR",
+                Currency = currency,
                 Hash = payHereHash,
                 FirstName = firstName,
                 LastName = lastName,
                 Email = customerEmail,
-                Phone = "",
+                Phone = customerPhone,
                 Address = shippingAddress,
-                City = "Colombo",
-                Country = "Sri Lanka",
+                City = city,
+                Country = customerCountry,
+                ReturnUrl = returnUrl,
+                CancelUrl = cancelUrl,
                 NotifyUrl = notifyUrl
             };
 
@@ -661,13 +700,38 @@ public class OrderService : IOrderService
             _logger.LogInformation("Order '{OrderId}' successfully marked Paid via PayHere IPN notification. PaymentId: {PaymentId}.",
                 order.Id, notification.payment_id);
         }
-        else if (notification.status_code == -1 || notification.status_code == -2)
+        else if (notification.status_code == 0)
         {
-            order.PaymentStatus = "Failed";
+            order.PaymentStatus = "Pending";
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
-            _logger.LogWarning("Order '{OrderId}' payment failed with status code {Code}: {Message}.",
-                order.Id, notification.status_code, notification.status_message);
+            _logger.LogInformation("Order '{OrderId}' payment is Pending in PayHere. PaymentId: {PaymentId}.",
+                order.Id, notification.payment_id);
+        }
+        else if (notification.status_code == -1)
+        {
+            order.PaymentStatus = "Cancelled";
+            order.OrderStatus = "Cancelled";
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            _logger.LogWarning("Order '{OrderId}' payment was cancelled by customer.", order.Id);
+        }
+        else if (notification.status_code == -2)
+        {
+            order.PaymentStatus = "Failed";
+            order.OrderStatus = "Cancelled";
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            _logger.LogWarning("Order '{OrderId}' payment failed with status message: {Message}.",
+                order.Id, notification.status_message);
+        }
+        else if (notification.status_code == -3)
+        {
+            order.PaymentStatus = "Chargedback";
+            order.OrderStatus = "Cancelled";
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+            _logger.LogWarning("Order '{OrderId}' payment was chargedback.", order.Id);
         }
 
         return true;

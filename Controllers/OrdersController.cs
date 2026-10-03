@@ -62,14 +62,49 @@ public class OrdersController : ControllerBase
 
     /// <summary>
     /// PayHere IPN Webhook endpoint called by PayHere upon transaction completion
+    /// PayHere sends notification as a server-to-server POST in 'application/x-www-form-urlencoded' format
     /// </summary>
     [HttpPost("payhere-notify")]
     [AllowAnonymous]
-    [Consumes("application/x-www-form-urlencoded", "multipart/form-data", "application/json")]
-    public async Task<IActionResult> PayHereNotify([FromForm] PayHereNotificationDto notification)
+    public async Task<IActionResult> PayHereNotify()
     {
-        _logger.LogInformation("PayHere IPN webhook callback received for Order '{OrderId}'. Status: {Status}.",
-            notification.order_id, notification.status_code);
+        PayHereNotificationDto notification;
+
+        if (Request.HasFormContentType)
+        {
+            var form = await Request.ReadFormAsync();
+            notification = new PayHereNotificationDto
+            {
+                merchant_id = form["merchant_id"].ToString(),
+                order_id = form["order_id"].ToString(),
+                payment_id = form["payment_id"].ToString(),
+                payhere_amount = form["payhere_amount"].ToString(),
+                payhere_currency = form["payhere_currency"].ToString(),
+                status_code = int.TryParse(form["status_code"], out var sc) ? sc : 0,
+                md5sig = form["md5sig"].ToString(),
+                custom_1 = form["custom_1"].ToString(),
+                custom_2 = form["custom_2"].ToString(),
+                status_message = form["status_message"].ToString(),
+                method = form["method"].ToString(),
+                card_holder_name = form["card_holder_name"].ToString(),
+                card_no = form["card_no"].ToString(),
+                card_expiry = form["card_expiry"].ToString()
+            };
+        }
+        else
+        {
+            try
+            {
+                notification = await Request.ReadFromJsonAsync<PayHereNotificationDto>() ?? new PayHereNotificationDto();
+            }
+            catch
+            {
+                notification = new PayHereNotificationDto();
+            }
+        }
+
+        _logger.LogInformation("PayHere IPN webhook callback received for Order '{OrderId}'. Status: {Status}, Amount: {Amount} {Currency}, Method: {Method}.",
+            notification.order_id, notification.status_code, notification.payhere_amount, notification.payhere_currency, notification.method);
 
         var result = await _orderService.ProcessPayHereNotificationAsync(notification);
         if (!result)

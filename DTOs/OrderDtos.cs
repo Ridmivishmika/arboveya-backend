@@ -101,11 +101,12 @@ public class OrderResponseDto
 public class PayHereCheckoutDetailsDto
 {
     public bool Sandbox { get; set; } = true;
+    public string ActionUrl { get; set; } = "https://sandbox.payhere.lk/pay/checkout";
     public string MerchantId { get; set; } = string.Empty;
     public string OrderId { get; set; } = string.Empty;
     public string Items { get; set; } = string.Empty;
     public decimal Amount { get; set; }
-    public string Currency { get; set; } = "LKR";
+    public string Currency { get; set; } = "USD";
     public string Hash { get; set; } = string.Empty;
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
@@ -114,6 +115,8 @@ public class PayHereCheckoutDetailsDto
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
     public string Country { get; set; } = string.Empty;
+    public string? ReturnUrl { get; set; }
+    public string? CancelUrl { get; set; }
     public string? NotifyUrl { get; set; }
 }
 
@@ -130,6 +133,9 @@ public class PayHereNotificationDto
     public string? custom_2 { get; set; }
     public string? status_message { get; set; }
     public string? method { get; set; }
+    public string? card_holder_name { get; set; }
+    public string? card_no { get; set; }
+    public string? card_expiry { get; set; }
 }
 
 public class ConfirmPaymentRequestDto
