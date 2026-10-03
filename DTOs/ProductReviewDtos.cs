@@ -27,6 +27,8 @@ public class UpdateProductReviewDto
     public string? AuthorName { get; set; }
 
     public Guid? ProductId { get; set; }
+
+    public string? OrderId { get; set; }
 }
 
 public class ReviewModerationDto
@@ -44,6 +46,7 @@ public class ProductReviewResponseDto
     public string? UserFullName { get; set; }
     public int Rating { get; set; }
     public string? Comment { get; set; }
+    public string? OrderId { get; set; }
     public bool IsApproved { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -59,6 +62,8 @@ public class PublicProductReviewDto
 
     [EmailAddress]
     public string? UserEmail { get; set; }
+
+    public string? OrderId { get; set; }
 
     [Required(ErrorMessage = "Rating is required.")]
     [Range(1, 5, ErrorMessage = "Rating must be between 1 and 5 stars.")]

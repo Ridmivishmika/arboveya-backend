@@ -103,8 +103,22 @@ public class ProductReviewService : IProductReviewService
             throw new UnauthorizedAccessException("User not found.");
         }
 
-        var existingReview = await _context.ProductReviews
-            .FirstOrDefaultAsync(r => r.ProductId == dto.ProductId && r.UserId == userId);
+        string? orderTag = null;
+        if (!string.IsNullOrWhiteSpace(dto.Comment))
+        {
+            var orderMatch = System.Text.RegularExpressions.Regex.Match(dto.Comment, @"^\[Order:([^\]]+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (orderMatch.Success)
+            {
+                orderTag = orderMatch.Value;
+            }
+        }
+
+        ProductReview? existingReview = null;
+        if (!string.IsNullOrEmpty(orderTag))
+        {
+            existingReview = await _context.ProductReviews
+                .FirstOrDefaultAsync(r => r.ProductId == dto.ProductId && r.UserId == userId && r.Comment != null && r.Comment.Contains(orderTag));
+        }
 
         if (existingReview != null)
         {
@@ -182,11 +196,36 @@ public class ProductReviewService : IProductReviewService
         var authorName = !string.IsNullOrWhiteSpace(dto.AuthorName) 
             ? dto.AuthorName.Trim() 
             : (!string.IsNullOrWhiteSpace(defaultAuthor) ? defaultAuthor : "Verified Customer");
-        var storedComment = $"[{authorName}] {cleanComment}";
 
-        // Check if there is already a review by this user for this product
-        var existingReview = await _context.ProductReviews
-            .FirstOrDefaultAsync(r => r.ProductId == product.Id && r.UserId == user.Id);
+        // Resolve order reference tag if present
+        string? orderTag = null;
+        var orderTagMatch = System.Text.RegularExpressions.Regex.Match(cleanComment, @"^\[Order:([^\]]+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (orderTagMatch.Success)
+        {
+            orderTag = orderTagMatch.Value;
+            cleanComment = cleanComment.Substring(orderTagMatch.Length).Trim();
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.OrderId))
+        {
+            orderTag = $"[Order:{dto.OrderId.Trim()}]";
+        }
+
+        var storedComment = !string.IsNullOrEmpty(orderTag)
+            ? $"{orderTag} [{authorName}] {cleanComment}"
+            : $"[{authorName}] {cleanComment}";
+
+        // Check if there is already a review by this user for this product and this specific order
+        ProductReview? existingReview = null;
+        if (!string.IsNullOrEmpty(orderTag))
+        {
+            existingReview = await _context.ProductReviews
+                .FirstOrDefaultAsync(r => r.ProductId == product.Id && r.UserId == user.Id && r.Comment != null && r.Comment.Contains(orderTag));
+        }
+        else
+        {
+            existingReview = await _context.ProductReviews
+                .FirstOrDefaultAsync(r => r.ProductId == product.Id && r.UserId == user.Id && (r.Comment == null || !r.Comment.Contains("[Order:")));
+        }
 
         if (existingReview != null)
         {
@@ -197,8 +236,8 @@ public class ProductReviewService : IProductReviewService
             existingReview.UserId = user.Id;
             await _context.SaveChangesAsync();
 
-            _logger.LogInformation("Existing review ({Id}) updated by user {UserId} ({Author}) for product '{ProductName}'.",
-                existingReview.Id, user.Id, authorName, product.Name);
+            _logger.LogInformation("Existing review ({Id}) updated by user {UserId} ({Author}) for product '{ProductName}' (OrderTag: {OrderTag}).",
+                existingReview.Id, user.Id, authorName, product.Name, orderTag ?? "none");
 
             var resp = MapToDto(existingReview);
             resp.ProductName = product.Name;
@@ -220,8 +259,8 @@ public class ProductReviewService : IProductReviewService
         _context.ProductReviews.Add(review);
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Public review created by user {UserId} ({Author}) for product '{ProductName}'.", 
-            user.Id, authorName, product.Name);
+        _logger.LogInformation("Public review created by user {UserId} ({Author}) for product '{ProductName}' (OrderTag: {OrderTag}).", 
+            user.Id, authorName, product.Name, orderTag ?? "none");
 
         var responseDto = MapToDto(review);
         responseDto.ProductName = product.Name;
@@ -267,21 +306,49 @@ public class ProductReviewService : IProductReviewService
         if (dto.Comment != null)
         {
             var cleanComment = dto.Comment.Trim();
+            string? orderTag = null;
+            var orderMatch = System.Text.RegularExpressions.Regex.Match(cleanComment, @"^\[Order:([^\]]+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (orderMatch.Success)
+            {
+                orderTag = orderMatch.Value;
+                cleanComment = cleanComment.Substring(orderMatch.Length).Trim();
+            }
+            else if (!string.IsNullOrWhiteSpace(dto.OrderId))
+            {
+                orderTag = $"[Order:{dto.OrderId.Trim()}]";
+            }
+            else if (!string.IsNullOrEmpty(review.Comment))
+            {
+                var prevOrderMatch = System.Text.RegularExpressions.Regex.Match(review.Comment, @"^\[Order:([^\]]+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+                if (prevOrderMatch.Success)
+                {
+                    orderTag = prevOrderMatch.Value;
+                }
+            }
+
             string? author = !string.IsNullOrWhiteSpace(dto.AuthorName) ? dto.AuthorName.Trim() : null;
             if (string.IsNullOrEmpty(author) && !string.IsNullOrEmpty(review.Comment) && review.Comment.StartsWith("[") && review.Comment.Contains("]"))
             {
-                var end = review.Comment.IndexOf(']');
-                if (end > 1)
+                var authorMatch = System.Text.RegularExpressions.Regex.Match(review.Comment, @"\[([A-Za-z0-9\s._-]+)\]");
+                if (authorMatch.Success && !authorMatch.Value.StartsWith("[Order:", StringComparison.OrdinalIgnoreCase))
                 {
-                    author = review.Comment.Substring(1, end - 1).Trim();
+                    author = authorMatch.Groups[1].Value.Trim();
                 }
             }
             if (string.IsNullOrEmpty(author) && review.User != null)
             {
                 author = $"{review.User.FirstName} {review.User.LastName}".Trim();
             }
+            if (string.IsNullOrEmpty(author))
+            {
+                author = "Verified Customer";
+            }
 
-            review.Comment = !string.IsNullOrWhiteSpace(author) ? $"[{author}] {cleanComment}" : cleanComment;
+            cleanComment = System.Text.RegularExpressions.Regex.Replace(cleanComment, @"^\[.*?\]\s*", "");
+
+            review.Comment = !string.IsNullOrEmpty(orderTag)
+                ? $"{orderTag} [{author}] {cleanComment}"
+                : $"[{author}] {cleanComment}";
         }
 
         review.IsApproved = true;
@@ -358,16 +425,23 @@ public class ProductReviewService : IProductReviewService
     private static ProductReviewResponseDto MapToDto(ProductReview review)
     {
         string? authorName = null;
-        string? displayComment = review.Comment;
+        string? orderId = null;
+        string displayComment = (review.Comment ?? string.Empty).Trim();
 
-        if (!string.IsNullOrEmpty(review.Comment) && review.Comment.StartsWith("[") && review.Comment.Contains("]"))
+        // 1. Extract [Order:xxx] tag if present
+        var orderMatch = System.Text.RegularExpressions.Regex.Match(displayComment, @"\[Order:([^\]]+)\]", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (orderMatch.Success)
         {
-            var closeBracketIdx = review.Comment.IndexOf(']');
-            if (closeBracketIdx > 1)
-            {
-                authorName = review.Comment.Substring(1, closeBracketIdx - 1).Trim();
-                displayComment = review.Comment.Substring(closeBracketIdx + 1).Trim();
-            }
+            orderId = orderMatch.Groups[1].Value.Trim();
+            displayComment = (displayComment.Substring(0, orderMatch.Index) + displayComment.Substring(orderMatch.Index + orderMatch.Length)).Trim();
+        }
+
+        // 2. Extract [AuthorName] tag if present
+        var authorMatch = System.Text.RegularExpressions.Regex.Match(displayComment, @"\[([^\]]+)\]");
+        if (authorMatch.Success && !authorMatch.Value.StartsWith("[Order:", StringComparison.OrdinalIgnoreCase))
+        {
+            authorName = authorMatch.Groups[1].Value.Trim();
+            displayComment = (displayComment.Substring(0, authorMatch.Index) + displayComment.Substring(authorMatch.Index + authorMatch.Length)).Trim();
         }
 
         if (string.IsNullOrWhiteSpace(authorName))
@@ -384,6 +458,7 @@ public class ProductReviewService : IProductReviewService
             UserFullName = authorName,
             Rating = review.Rating,
             Comment = displayComment,
+            OrderId = orderId,
             IsApproved = review.IsApproved,
             CreatedAt = review.CreatedAt,
             UpdatedAt = review.UpdatedAt
