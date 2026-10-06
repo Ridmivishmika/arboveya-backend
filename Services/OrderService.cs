@@ -352,7 +352,7 @@ public class OrderService : IOrderService
             var currency = (_configuration["PayHere:Currency"] 
                 ?? _configuration["PAYHERE_CURRENCY"] 
                 ?? Environment.GetEnvironmentVariable("PAYHERE_CURRENCY") 
-                ?? "USD").Trim().ToUpperInvariant();
+                ?? "LKR").Trim().ToUpperInvariant();
 
             var returnUrl = _configuration["PayHere:ReturnUrl"] 
                 ?? _configuration["PAYHERE_RETURN_URL"] 
@@ -411,6 +411,11 @@ public class OrderService : IOrderService
                 Address = shippingAddress,
                 City = city,
                 Country = customerCountry,
+                DeliveryAddress = shippingAddress,
+                DeliveryCity = city,
+                DeliveryCountry = customerCountry,
+                Custom1 = string.Empty,
+                Custom2 = string.Empty,
                 ReturnUrl = returnUrl,
                 CancelUrl = cancelUrl,
                 NotifyUrl = notifyUrl
@@ -663,22 +668,34 @@ public class OrderService : IOrderService
             ?? "4UPxLq74JtT4LUPxLq74JtT";
         if (merchantSecret == "your_payhere_merchant_secret") merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
 
-        // Signature verification:
-        // MD5(merchant_id + order_id + payhere_amount + payhere_currency + status_code + strtoupper(md5(merchant_secret)))
-        if (!string.IsNullOrWhiteSpace(notification.md5sig) && !string.IsNullOrWhiteSpace(notification.payhere_amount))
+        // 1. Mandatory verification checks according to PayHere security guidelines
+        if (string.IsNullOrWhiteSpace(notification.md5sig) || string.IsNullOrWhiteSpace(notification.payhere_amount))
         {
-            var hashedSecret = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(merchantSecret)))
-                .Replace("-", "").ToUpperInvariant();
-            var rawSig = $"{merchantId}{notification.order_id}{notification.payhere_amount}{notification.payhere_currency}{notification.status_code}{hashedSecret}";
-            var computedSig = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(rawSig)))
-                .Replace("-", "").ToUpperInvariant();
+            _logger.LogWarning("PayHere IPN rejected: missing md5sig or payhere_amount for order '{OrderId}'.", notification.order_id);
+            return false;
+        }
 
-            if (!string.Equals(computedSig, notification.md5sig, StringComparison.OrdinalIgnoreCase))
-            {
-                _logger.LogWarning("PayHere IPN MD5 signature mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
-                    notification.order_id, computedSig, notification.md5sig);
-                return false;
-            }
+        if (!string.IsNullOrWhiteSpace(notification.merchant_id) && 
+            !string.Equals(notification.merchant_id.Trim(), merchantId.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("PayHere IPN Merchant ID mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+                notification.order_id, merchantId, notification.merchant_id);
+            return false;
+        }
+
+        // 2. MD5 signature verification:
+        // MD5(merchant_id + order_id + payhere_amount + payhere_currency + status_code + strtoupper(md5(merchant_secret)))
+        var hashedSecret = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(merchantSecret)))
+            .Replace("-", "").ToUpperInvariant();
+        var rawSig = $"{merchantId}{notification.order_id}{notification.payhere_amount}{notification.payhere_currency}{notification.status_code}{hashedSecret}";
+        var computedSig = BitConverter.ToString(MD5.HashData(Encoding.UTF8.GetBytes(rawSig)))
+            .Replace("-", "").ToUpperInvariant();
+
+        if (!string.Equals(computedSig, notification.md5sig, StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("PayHere IPN MD5 signature mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+                notification.order_id, computedSig, notification.md5sig);
+            return false;
         }
 
         var order = await _context.Orders
@@ -689,6 +706,20 @@ public class OrderService : IOrderService
         {
             _logger.LogWarning("Order with PayHereOrderId '{OrderId}' not found.", notification.order_id);
             return false;
+        }
+
+        // 3. Amount integrity check to prevent underpayment fraud
+        if (decimal.TryParse(notification.payhere_amount, NumberStyles.Any, CultureInfo.InvariantCulture, out var paidAmount))
+        {
+            if (notification.status_code == 2 && paidAmount < order.TotalAmount)
+            {
+                _logger.LogWarning("PayHere IPN payment amount mismatch for order '{OrderId}'. Expected at least {Expected}, received {Received}.",
+                    order.Id, order.TotalAmount, paidAmount);
+                order.PaymentStatus = "PartiallyPaid";
+                order.UpdatedAt = DateTime.UtcNow;
+                await _context.SaveChangesAsync();
+                return false;
+            }
         }
 
         if (notification.status_code == 2)

@@ -115,6 +115,11 @@ public class PayHereCheckoutDetailsDto
     public string Address { get; set; } = string.Empty;
     public string City { get; set; } = string.Empty;
     public string Country { get; set; } = string.Empty;
+    public string DeliveryAddress { get; set; } = string.Empty;
+    public string DeliveryCity { get; set; } = string.Empty;
+    public string DeliveryCountry { get; set; } = string.Empty;
+    public string Custom1 { get; set; } = string.Empty;
+    public string Custom2 { get; set; } = string.Empty;
     public string? ReturnUrl { get; set; }
     public string? CancelUrl { get; set; }
     public string? NotifyUrl { get; set; }
