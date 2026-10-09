@@ -288,6 +288,38 @@ public class OrdersController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Process order refund (Admin or Customer Service)
+    /// Restores catalog inventory, marks order as Cancelled/Refunded, cancels seller payout, and sends email notifications.
+    /// </summary>
+    [HttpPost("{id:guid}/refund")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RefundOrder(Guid id, [FromBody] RefundOrderRequestDto? request)
+    {
+        try
+        {
+            var refunded = await _orderService.RefundOrderAsync(id, request?.Reason, request?.Amount);
+            if (refunded == null)
+            {
+                return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            }
+
+            return Ok(refunded);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error processing refund for order {OrderId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while processing the refund." });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);

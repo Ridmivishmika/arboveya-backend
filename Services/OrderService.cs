@@ -221,113 +221,8 @@ public class OrderService : IOrderService
             _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created successfully for {CustomerEmail}. Total: {TotalAmount:C}.",
                 order.Id, order.PayHereOrderId, order.CustomerEmail, order.TotalAmount);
 
-            // Send notification email to each seller who has products in this order
-            try
-            {
-                var sellerGroups = orderItems
-                    .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
-                    .GroupBy(i => i.Product!.Seller!);
-
-                foreach (var group in sellerGroups)
-                {
-                    var seller = group.Key;
-                    var sellerItems = group.ToList();
-                    var sellerSubtotal = sellerItems.Sum(si => si.UnitPrice * si.Quantity);
-
-                    var itemsHtml = new StringBuilder();
-                    foreach (var item in sellerItems)
-                    {
-                        var pName = item.Product?.Name ?? "Botanical Product";
-                        itemsHtml.Append($@"
-                            <tr style=""border-bottom: 1px solid #e5ede6;"">
-                                <td style=""padding: 10px; font-weight: 500; color: #1c3f24;"">{System.Net.WebUtility.HtmlEncode(pName)}</td>
-                                <td style=""padding: 10px; text-align: center; color: #556b59;"">{item.Quantity}</td>
-                                <td style=""padding: 10px; text-align: right; color: #556b59;"">${item.UnitPrice:F2}</td>
-                                <td style=""padding: 10px; text-align: right; font-weight: 600; color: #1c3f24;"">${(item.UnitPrice * item.Quantity):F2}</td>
-                            </tr>");
-                    }
-
-                    var bankDetailsHtml = !string.IsNullOrWhiteSpace(seller.BankAccountNumber)
-                        ? $@"<div style=""background: #edf5ee; border-left: 4px solid #24492d; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
-                                <strong style=""color: #1c3f24; font-size: 13px;"">Disbursement Bank Account:</strong>
-                                <p style=""margin: 4px 0 0 0; font-size: 12px; color: #2e4d38; line-height: 1.5;"">
-                                    <strong>Bank:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankName ?? "Registered Bank")}<br/>
-                                    <strong>Account Name:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountName ?? (seller.FirstName + " " + seller.LastName))}<br/>
-                                    <strong>Account Number:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountNumber)}<br/>
-                                    {(string.IsNullOrWhiteSpace(seller.BankBranch) ? "" : $"<strong>Branch / Swift:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankBranch)}<br/>")}
-                                    Funds will be disbursed to your registered bank account according to standard vendor settlement cycles.
-                                </p>
-                             </div>"
-                        : @"<div style=""background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
-                                <strong style=""color: #92400e; font-size: 13px;"">Bank Details Required:</strong>
-                                <p style=""margin: 4px 0 0 0; font-size: 12px; color: #b45309; line-height: 1.5;"">
-                                    Please ensure your bank account details are up to date in your Seller Studio profile to receive automated vendor disbursements for this sale.
-                                </p>
-                             </div>";
-
-                    var emailSubject = $"[Arboveya] New Order Received! Order #{order.PayHereOrderId}";
-                    var emailHtml = $@"
-                        <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
-                            <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
-                                <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
-                                <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Herbal & Botanical Marketplace</p>
-                            </div>
-                            <div style=""padding: 24px 28px;"">
-                                <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">New Order Received!</h2>
-                                <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
-                                    Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
-                                    A customer has placed an order containing botanical product(s) from your store.
-                                </p>
-
-                                <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
-                                    <div><strong>Order Reference:</strong> <span style=""font-family: monospace; color: #1c3f24;"">{order.PayHereOrderId}</span></div>
-                                    <div><strong>Order Date:</strong> {order.CreatedAt:MMMM dd, yyyy HH:mm} UTC</div>
-                                    <div><strong>Buyer:</strong> {System.Net.WebUtility.HtmlEncode(order.CustomerName)} ({System.Net.WebUtility.HtmlEncode(order.CustomerEmail)})</div>
-                                    <div><strong>Shipping Destination:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingAddress)}</div>
-                                    <div><strong>Shipping Method:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingMethod ?? "Standard Shipping")}</div>
-                                </div>
-
-                                <h3 style=""color: #1c3f24; font-size: 14px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;"">Ordered Items</h3>
-                                <table style=""width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;"">
-                                    <thead>
-                                        <tr style=""background: #f0f5f1; color: #1c3f24; text-align: left;"">
-                                            <th style=""padding: 10px; border-radius: 4px 0 0 4px;"">Item</th>
-                                            <th style=""padding: 10px; text-align: center;"">Qty</th>
-                                            <th style=""padding: 10px; text-align: right;"">Price</th>
-                                            <th style=""padding: 10px; text-align: right; border-radius: 0 4px 4px 0;"">Subtotal</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {itemsHtml}
-                                    </tbody>
-                                    <tfoot>
-                                        <tr>
-                                            <td colspan=""3"" style=""padding: 12px 10px; text-align: right; font-weight: bold; color: #1c3f24;"">Seller Earnings:</td>
-                                            <td style=""padding: 12px 10px; text-align: right; font-weight: bold; font-size: 15px; color: #1c3f24;"">${sellerSubtotal:F2}</td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-
-                                {bankDetailsHtml}
-
-                                <div style=""margin-top: 24px; text-align: center;"">
-                                    <p style=""font-size: 12px; color: #6b7280; margin-bottom: 8px;"">Please prepare and dispatch the botanical remedies according to your handling schedule.</p>
-                                </div>
-                            </div>
-                            <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                                &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
-                            </div>
-                        </div>";
-
-                    await _emailService.SendEmailAsync(seller.Email, emailSubject, emailHtml);
-                    _logger.LogInformation("Sent new order notification email for order '{OrderId}' to seller '{SellerEmail}'.",
-                        order.Id, seller.Email);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send seller order notification email(s) for order '{OrderId}'.", order.Id);
-            }
+            _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created with status '{PaymentStatus}' for {CustomerEmail}. Total: {TotalAmount:C}. Waiting for payment confirmation before notifying seller(s).",
+                order.Id, order.PayHereOrderId, order.PaymentStatus, order.CustomerEmail, order.TotalAmount);
 
             var resp = MapToDto(order);
 
@@ -539,12 +434,16 @@ public class OrderService : IOrderService
         var order = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null)
         {
             return null;
         }
+
+        var oldStatus = order.OrderStatus;
+        var oldPaymentStatus = order.PaymentStatus;
 
         // Check if cancelling order to restore inventory
         if (!string.IsNullOrWhiteSpace(dto.OrderStatus))
@@ -573,7 +472,25 @@ public class OrderService : IOrderService
 
         if (!string.IsNullOrWhiteSpace(dto.PaymentStatus))
         {
-            order.PaymentStatus = dto.PaymentStatus.Trim();
+            var newPaymentStatus = dto.PaymentStatus.Trim();
+            if (!order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) && 
+                newPaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+            {
+                // If not already cancelled, cancel and restore stock
+                if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+                {
+                    foreach (var item in order.Items)
+                    {
+                        if (item.Product != null)
+                        {
+                            item.Product.StockQuantity += item.Quantity;
+                            item.Product.UpdatedAt = DateTime.UtcNow;
+                        }
+                    }
+                    order.OrderStatus = "Cancelled";
+                }
+            }
+            order.PaymentStatus = newPaymentStatus;
         }
 
         order.UpdatedAt = DateTime.UtcNow;
@@ -583,6 +500,21 @@ public class OrderService : IOrderService
         _logger.LogInformation("Order '{OrderId}' updated. OrderStatus: '{OrderStatus}', PaymentStatus: '{PaymentStatus}'.",
             order.Id, order.OrderStatus, order.PaymentStatus);
 
+        // Notify seller only when order has been Delivered and Paid (funds cleared for disbursement)
+        if (!oldStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
+            order.OrderStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
+            order.PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendDeliveredOrderPayoutEligibilityNotificationAsync(order);
+        }
+
+        // Notify buyer & seller if order was marked Refunded
+        if (!oldPaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) &&
+            order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendOrderRefundNotificationsAsync(order, order.TotalAmount, "Refund processed by platform");
+        }
+
         return MapToDto(order);
     }
 
@@ -591,12 +523,15 @@ public class OrderService : IOrderService
         var order = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
             .FirstOrDefaultAsync(o => o.Id == id);
 
         if (order == null)
         {
             return null;
         }
+
+        var oldStatus = order.OrderStatus;
 
         order.TrackingNumber = dto.TrackingNumber.Trim();
         if (!string.IsNullOrWhiteSpace(dto.ShippingCarrier))
@@ -612,6 +547,58 @@ public class OrderService : IOrderService
 
         _logger.LogInformation("Order '{OrderId}' updated with tracking number '{TrackingNumber}' by carrier '{Carrier}'. Status: '{Status}'.",
             order.Id, order.TrackingNumber, order.ShippingCarrier, order.OrderStatus);
+
+        // Notify seller if tracking update marked the order as Delivered
+        if (!oldStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
+            order.OrderStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) &&
+            order.PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+        {
+            await SendDeliveredOrderPayoutEligibilityNotificationAsync(order);
+        }
+
+        return MapToDto(order);
+    }
+
+    public async Task<OrderResponseDto?> RefundOrderAsync(Guid orderId, string? reason = null, decimal? refundAmount = null)
+    {
+        var order = await _context.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+
+        if (order == null) return null;
+
+        if (order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Order '{order.PayHereOrderId}' is already marked as Refunded.");
+        }
+
+        var amountToRefund = (refundAmount.HasValue && refundAmount.Value > 0) ? refundAmount.Value : order.TotalAmount;
+
+        // Restore inventory for items if order wasn't previously cancelled
+        if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+        {
+            foreach (var item in order.Items)
+            {
+                if (item.Product != null)
+                {
+                    item.Product.StockQuantity += item.Quantity;
+                    item.Product.UpdatedAt = DateTime.UtcNow;
+                }
+            }
+        }
+
+        order.PaymentStatus = "Refunded";
+        order.OrderStatus = "Cancelled";
+        order.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Order '{OrderId}' successfully refunded (${RefundAmount:F2}). Reason: '{Reason}'.",
+            order.Id, amountToRefund, reason ?? "Requested by customer");
+
+        // Send refund notification emails to buyer and seller
+        await SendOrderRefundNotificationsAsync(order, amountToRefund, reason ?? "Requested by customer");
 
         return MapToDto(order);
     }
@@ -700,6 +687,8 @@ public class OrderService : IOrderService
 
         var order = await _context.Orders
             .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
             .FirstOrDefaultAsync(o => o.PayHereOrderId == notification.order_id);
 
         if (order == null)
@@ -724,12 +713,19 @@ public class OrderService : IOrderService
 
         if (notification.status_code == 2)
         {
+            var alreadyPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
+
             order.PaymentStatus = "Paid";
             order.OrderStatus = "Processing";
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
             _logger.LogInformation("Order '{OrderId}' successfully marked Paid via PayHere IPN notification. PaymentId: {PaymentId}.",
                 order.Id, notification.payment_id);
+
+            if (!alreadyPaid)
+            {
+                await SendPaidOrderSellerNotificationsAsync(order);
+            }
         }
         else if (notification.status_code == 0)
         {
@@ -773,9 +769,12 @@ public class OrderService : IOrderService
         var order = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
             .FirstOrDefaultAsync(o => o.Id == orderId);
 
         if (order == null) return null;
+
+        var alreadyPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
 
         order.PaymentStatus = "Paid";
         order.OrderStatus = "Processing";
@@ -785,7 +784,298 @@ public class OrderService : IOrderService
         _logger.LogInformation("Order '{OrderId}' payment confirmed by client callback. PaymentId: {PaymentId}.",
             order.Id, paymentId);
 
+        if (!alreadyPaid)
+        {
+            await SendPaidOrderSellerNotificationsAsync(order);
+        }
+
         return MapToDto(order);
+    }
+
+    private async Task SendPaidOrderSellerNotificationsAsync(Order order)
+    {
+        try
+        {
+            var items = order.Items;
+            if (items == null || !items.Any() || items.Any(i => i.Product == null || i.Product.Seller == null))
+            {
+                items = await _context.OrderItems
+                    .Where(i => i.OrderId == order.Id)
+                    .Include(i => i.Product)
+                        .ThenInclude(p => p!.Seller)
+                    .ToListAsync();
+            }
+
+            var sellerGroups = items
+                .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
+                .GroupBy(i => i.Product!.Seller!);
+
+            foreach (var group in sellerGroups)
+            {
+                var seller = group.Key;
+                var sellerItems = group.ToList();
+                var sellerSubtotal = sellerItems.Sum(si => si.UnitPrice * si.Quantity);
+
+                var itemsHtml = new StringBuilder();
+                foreach (var item in sellerItems)
+                {
+                    var pName = item.Product?.Name ?? "Botanical Product";
+                    itemsHtml.Append($@"
+                        <tr style=""border-bottom: 1px solid #e5ede6;"">
+                            <td style=""padding: 10px; font-weight: 500; color: #1c3f24;"">{System.Net.WebUtility.HtmlEncode(pName)}</td>
+                            <td style=""padding: 10px; text-align: center; color: #556b59;"">{item.Quantity}</td>
+                            <td style=""padding: 10px; text-align: right; color: #556b59;"">${item.UnitPrice:F2}</td>
+                            <td style=""padding: 10px; text-align: right; font-weight: 600; color: #1c3f24;"">${(item.UnitPrice * item.Quantity):F2}</td>
+                        </tr>");
+                }
+
+                var bankDetailsHtml = !string.IsNullOrWhiteSpace(seller.BankAccountNumber)
+                    ? $@"<div style=""background: #edf5ee; border-left: 4px solid #24492d; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
+                            <strong style=""color: #1c3f24; font-size: 13px;"">Disbursement Bank Account:</strong>
+                            <p style=""margin: 4px 0 0 0; font-size: 12px; color: #2e4d38; line-height: 1.5;"">
+                                <strong>Bank:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankName ?? "Registered Bank")}<br/>
+                                <strong>Account Name:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountName ?? (seller.FirstName + " " + seller.LastName))}<br/>
+                                <strong>Account Number:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankAccountNumber)}<br/>
+                                {(string.IsNullOrWhiteSpace(seller.BankBranch) ? "" : $"<strong>Branch / Swift:</strong> {System.Net.WebUtility.HtmlEncode(seller.BankBranch)}<br/>")}
+                                Funds will be disbursed to your registered bank account according to standard vendor settlement cycles.
+                            </p>
+                         </div>"
+                    : @"<div style=""background: #fffbeb; border-left: 4px solid #f59e0b; padding: 12px 16px; border-radius: 6px; margin-top: 16px;"">
+                            <strong style=""color: #92400e; font-size: 13px;"">Bank Details Required:</strong>
+                            <p style=""margin: 4px 0 0 0; font-size: 12px; color: #b45309; line-height: 1.5;"">
+                                Please ensure your bank account details are up to date in your Seller Studio profile to receive automated vendor disbursements for this sale.
+                            </p>
+                         </div>";
+
+                var emailSubject = $"[Arboveya] Payment Confirmed! New Order #{order.PayHereOrderId}";
+                var emailHtml = $@"
+                    <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
+                        <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
+                            <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                            <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Herbal & Botanical Marketplace</p>
+                        </div>
+                        <div style=""padding: 24px 28px;"">
+                            <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Payment Confirmed — Order Ready for Dispatch!</h2>
+                            <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
+                                The buyer has successfully completed payment for an order containing botanical product(s) from your store.
+                            </p>
+
+                            <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
+                                <div><strong>Order Reference:</strong> <span style=""font-family: monospace; color: #1c3f24;"">{order.PayHereOrderId}</span></div>
+                                <div><strong>Payment Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Paid (Verified)</span></div>
+                                <div><strong>Order Date:</strong> {order.CreatedAt:MMMM dd, yyyy HH:mm} UTC</div>
+                                <div><strong>Buyer:</strong> {System.Net.WebUtility.HtmlEncode(order.CustomerName)} ({System.Net.WebUtility.HtmlEncode(order.CustomerEmail)})</div>
+                                <div><strong>Shipping Destination:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingAddress)}</div>
+                                <div><strong>Shipping Method:</strong> {System.Net.WebUtility.HtmlEncode(order.ShippingMethod ?? "Standard Shipping")}</div>
+                            </div>
+
+                            <h3 style=""color: #1c3f24; font-size: 14px; margin: 0 0 10px 0; text-transform: uppercase; letter-spacing: 0.5px;"">Ordered Items</h3>
+                            <table style=""width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 16px;"">
+                                <thead>
+                                    <tr style=""background: #f0f5f1; color: #1c3f24; text-align: left;"">
+                                        <th style=""padding: 10px; border-radius: 4px 0 0 4px;"">Item</th>
+                                        <th style=""padding: 10px; text-align: center;"">Qty</th>
+                                        <th style=""padding: 10px; text-align: right;"">Price</th>
+                                        <th style=""padding: 10px; text-align: right; border-radius: 0 4px 4px 0;"">Subtotal</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {itemsHtml}
+                                </tbody>
+                                <tfoot>
+                                    <tr>
+                                        <td colspan=""3"" style=""padding: 12px 10px; text-align: right; font-weight: bold; color: #1c3f24;"">Seller Earnings:</td>
+                                        <td style=""padding: 12px 10px; text-align: right; font-weight: bold; font-size: 15px; color: #1c3f24;"">${sellerSubtotal:F2}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+
+                            {bankDetailsHtml}
+
+                            <div style=""margin-top: 24px; text-align: center;"">
+                                <p style=""font-size: 12px; color: #15803d; font-weight: 500; margin-bottom: 8px;"">Payment has been verified. Please prepare and dispatch the botanical remedies according to your handling schedule.</p>
+                            </div>
+                        </div>
+                        <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                        </div>
+                    </div>";
+
+                await _emailService.SendEmailAsync(seller.Email, emailSubject, emailHtml);
+                _logger.LogInformation("Sent paid order notification email for order '{OrderId}' to seller '{SellerEmail}'.",
+                    order.Id, seller.Email);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send seller paid order notification email(s) for order '{OrderId}'.", order.Id);
+        }
+    }
+
+    private async Task SendDeliveredOrderPayoutEligibilityNotificationAsync(Order order)
+    {
+        try
+        {
+            var items = order.Items;
+            if (items == null || !items.Any() || items.Any(i => i.Product == null || i.Product.Seller == null))
+            {
+                items = await _context.OrderItems
+                    .Where(i => i.OrderId == order.Id)
+                    .Include(i => i.Product)
+                        .ThenInclude(p => p!.Seller)
+                    .ToListAsync();
+            }
+
+            var sellerGroups = items
+                .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
+                .GroupBy(i => i.Product!.Seller!);
+
+            foreach (var group in sellerGroups)
+            {
+                var seller = group.Key;
+                var sellerItems = group.ToList();
+                var sellerSubtotal = sellerItems.Sum(si => si.UnitPrice * si.Quantity);
+
+                var bankInfo = !string.IsNullOrWhiteSpace(seller.BankAccountNumber)
+                    ? $"{System.Net.WebUtility.HtmlEncode(seller.BankName ?? "Registered Bank")} (Account: {System.Net.WebUtility.HtmlEncode(seller.BankAccountNumber)})"
+                    : "Registered Bank Account on file";
+
+                var emailSubject = $"[Arboveya] Order Delivered! Payout Cleared for Order #{order.PayHereOrderId}";
+                var emailHtml = $@"
+                    <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
+                        <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
+                            <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                            <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Seller Payout Notification</p>
+                        </div>
+                        <div style=""padding: 24px 28px;"">
+                            <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Customer Delivery Confirmed — Funds Released!</h2>
+                            <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
+                                Great news! The botanical package for order <strong>#{order.PayHereOrderId}</strong> has been successfully delivered to the customer.
+                            </p>
+
+                            <div style=""background: #edf5ee; border: 1px solid #c2dec5; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #1c3f24; line-height: 1.6;"">
+                                <div><strong>Order Reference:</strong> <span style=""font-family: monospace;"">{order.PayHereOrderId}</span></div>
+                                <div><strong>Delivery Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Delivered</span></div>
+                                <div><strong>Escrow Funds Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Released (Cleared for Disbursement)</span></div>
+                                <div><strong>Net Seller Earnings:</strong> <span style=""font-weight: bold; font-size: 15px;"">${sellerSubtotal:F2}</span></div>
+                                <div><strong>Payout Destination:</strong> {bankInfo}</div>
+                            </div>
+
+                            <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
+                                In accordance with Arboveya's seller settlement policy, funds are released immediately upon delivery confirmation and will be disbursed to your bank account during the next regular payout cycle.
+                            </p>
+                        </div>
+                        <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                        </div>
+                    </div>";
+
+                await _emailService.SendEmailAsync(seller.Email, emailSubject, emailHtml);
+                _logger.LogInformation("Sent delivery payout clearance notification email for order '{OrderId}' to seller '{SellerEmail}'.",
+                    order.Id, seller.Email);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send seller payout clearance email for order '{OrderId}'.", order.Id);
+        }
+    }
+
+    private async Task SendOrderRefundNotificationsAsync(Order order, decimal refundAmount, string reason)
+    {
+        try
+        {
+            // 1. Email to Buyer
+            if (!string.IsNullOrWhiteSpace(order.CustomerEmail))
+            {
+                var buyerSubject = $"[Arboveya] Refund Confirmation — Order #{order.PayHereOrderId}";
+                var buyerHtml = $@"
+                    <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
+                        <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
+                            <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                            <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Refund Notice</p>
+                        </div>
+                        <div style=""padding: 24px 28px;"">
+                            <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Your Refund Has Been Processed</h2>
+                            <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                Hello <strong>{System.Net.WebUtility.HtmlEncode(order.CustomerName)}</strong>,<br/>
+                                A refund has been processed for your order with Arboveya Herbal Botanical.
+                            </p>
+
+                            <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
+                                <div><strong>Order Reference:</strong> <span style=""font-family: monospace; color: #1c3f24;"">{order.PayHereOrderId}</span></div>
+                                <div><strong>Refund Amount:</strong> <strong style=""color: #15803d; font-size: 15px;"">${refundAmount:F2}</strong></div>
+                                <div><strong>Reason:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
+                                <div><strong>Payment Status:</strong> <span style=""color: #b91c1c; font-weight: bold;"">Refunded</span></div>
+                            </div>
+
+                            <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
+                                Funds have been returned to your original payment card via PayHere. Depending on your bank's card processing cycle, it usually takes <strong>5 to 10 business days</strong> for the credit to appear on your statement.
+                            </p>
+                        </div>
+                        <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                        </div>
+                    </div>";
+
+                await _emailService.SendEmailAsync(order.CustomerEmail, buyerSubject, buyerHtml);
+                _logger.LogInformation("Sent refund confirmation email for order '{OrderId}' to buyer '{BuyerEmail}'.", order.Id, order.CustomerEmail);
+            }
+
+            // 2. Email to Seller(s)
+            var items = order.Items;
+            if (items == null || !items.Any() || items.Any(i => i.Product == null || i.Product.Seller == null))
+            {
+                items = await _context.OrderItems
+                    .Where(i => i.OrderId == order.Id)
+                    .Include(i => i.Product)
+                        .ThenInclude(p => p!.Seller)
+                    .ToListAsync();
+            }
+
+            var sellerGroups = items
+                .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
+                .GroupBy(i => i.Product!.Seller!);
+
+            foreach (var group in sellerGroups)
+            {
+                var seller = group.Key;
+                var sellerSubject = $"[Arboveya] Order Refund Notice — Order #{order.PayHereOrderId}";
+                var sellerHtml = $@"
+                    <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #7f1d1d; border-radius: 12px; overflow: hidden;"">
+                        <div style=""padding: 24px; text-align: center;"">
+                            <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                            <p style=""color: #fecaca; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Order Refund Notice</p>
+                        </div>
+                        <div style=""background: #ffffff; padding: 24px 28px;"">
+                            <h2 style=""color: #991b1b; margin: 0 0 12px 0; font-size: 18px;"">Order Refunded & Escrow Withheld</h2>
+                            <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
+                                Please be informed that order <strong>#{order.PayHereOrderId}</strong> has been refunded to the customer.
+                            </p>
+
+                            <div style=""background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #7f1d1d; line-height: 1.6;"">
+                                <div><strong>Order Reference:</strong> <span style=""font-family: monospace;"">{order.PayHereOrderId}</span></div>
+                                <div><strong>Refund Reason:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
+                                <div><strong>Escrow Status:</strong> <strong>Cancelled / Withheld</strong> (No payout will be disbursed)</div>
+                                <div><strong>Inventory:</strong> Item stock has been automatically restored to your store catalog.</div>
+                            </div>
+                        </div>
+                        <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                        </div>
+                    </div>";
+
+                await _emailService.SendEmailAsync(seller.Email, sellerSubject, sellerHtml);
+                _logger.LogInformation("Sent refund notice email for order '{OrderId}' to seller '{SellerEmail}'.", order.Id, seller.Email);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send refund notification emails for order '{OrderId}'.", order.Id);
+        }
     }
 
     private static string GeneratePayHereHash(string merchantId, string orderId, decimal amount, string currency, string merchantSecret)

@@ -94,8 +94,22 @@ public class OrderResponseDto
     public DateTime? ShippedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
+    public string FundsStatus => (PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) || OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+        ? "Cancelled / Withheld"
+        : (OrderStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase) && PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase)
+            ? "Released"
+            : "On hold");
     public List<OrderItemResponseDto> Items { get; set; } = new();
     public PayHereCheckoutDetailsDto? PayHereDetails { get; set; }
+}
+
+public class RefundOrderRequestDto
+{
+    [MaxLength(250)]
+    public string? Reason { get; set; } = "Requested by customer";
+
+    [Range(0.01, 1000000)]
+    public decimal? Amount { get; set; }
 }
 
 public class PayHereCheckoutDetailsDto
