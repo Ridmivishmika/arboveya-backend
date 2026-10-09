@@ -332,39 +332,39 @@ public class OrderService : IOrderService
             var resp = MapToDto(order);
 
             // Populate PayHere details for client-side checkout
-            var merchantId = _configuration["PayHere:MerchantId"] 
-                ?? _configuration["PAYHERE_MERCHANT_ID"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID") 
+            var merchantId = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID")
+                ?? _configuration["PAYHERE_MERCHANT_ID"]
+                ?? _configuration["PayHere:MerchantId"]
                 ?? "1211149";
-            if (merchantId == "your_payhere_merchant_id") merchantId = "1211149";
+            if (merchantId == "your_payhere_merchant_id" || string.IsNullOrWhiteSpace(merchantId)) merchantId = "1211149";
 
-            var merchantSecret = _configuration["PayHere:MerchantSecret"] 
-                ?? _configuration["PAYHERE_MERCHANT_SECRET"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET") 
+            var merchantSecret = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET")
+                ?? _configuration["PAYHERE_MERCHANT_SECRET"]
+                ?? _configuration["PayHere:MerchantSecret"]
                 ?? "4UPxLq74JtT4LUPxLq74JtT";
-            if (merchantSecret == "your_payhere_merchant_secret") merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+            if (merchantSecret == "your_payhere_merchant_secret" || string.IsNullOrWhiteSpace(merchantSecret)) merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
 
-            var isSandbox = (_configuration["PayHere:IsSandbox"] 
-                ?? _configuration["PAYHERE_SANDBOX"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_SANDBOX") 
+            var isSandbox = (Environment.GetEnvironmentVariable("PAYHERE_SANDBOX")
+                ?? _configuration["PAYHERE_SANDBOX"]
+                ?? _configuration["PayHere:IsSandbox"]
                 ?? "true").Equals("true", StringComparison.OrdinalIgnoreCase);
 
-            var currency = (_configuration["PayHere:Currency"] 
-                ?? _configuration["PAYHERE_CURRENCY"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_CURRENCY") 
+            var currency = (Environment.GetEnvironmentVariable("PAYHERE_CURRENCY")
+                ?? _configuration["PAYHERE_CURRENCY"]
+                ?? _configuration["PayHere:Currency"]
                 ?? "LKR").Trim().ToUpperInvariant();
 
-            var returnUrl = _configuration["PayHere:ReturnUrl"] 
-                ?? _configuration["PAYHERE_RETURN_URL"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_RETURN_URL");
+            var returnUrl = Environment.GetEnvironmentVariable("PAYHERE_RETURN_URL")
+                ?? _configuration["PAYHERE_RETURN_URL"]
+                ?? _configuration["PayHere:ReturnUrl"];
 
-            var cancelUrl = _configuration["PayHere:CancelUrl"] 
-                ?? _configuration["PAYHERE_CANCEL_URL"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_CANCEL_URL");
+            var cancelUrl = Environment.GetEnvironmentVariable("PAYHERE_CANCEL_URL")
+                ?? _configuration["PAYHERE_CANCEL_URL"]
+                ?? _configuration["PayHere:CancelUrl"];
 
-            var notifyUrl = _configuration["PayHere:NotifyUrl"] 
-                ?? _configuration["PAYHERE_NOTIFY_URL"] 
-                ?? Environment.GetEnvironmentVariable("PAYHERE_NOTIFY_URL");
+            var notifyUrl = Environment.GetEnvironmentVariable("PAYHERE_NOTIFY_URL")
+                ?? _configuration["PAYHERE_NOTIFY_URL"]
+                ?? _configuration["PayHere:NotifyUrl"];
 
             var actionUrl = isSandbox 
                 ? "https://sandbox.payhere.lk/pay/checkout" 
@@ -656,17 +656,17 @@ public class OrderService : IOrderService
             return false;
         }
 
-        var merchantId = _configuration["PayHere:MerchantId"] 
-            ?? _configuration["PAYHERE_MERCHANT_ID"] 
-            ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID") 
+        var merchantId = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID")
+            ?? _configuration["PAYHERE_MERCHANT_ID"]
+            ?? _configuration["PayHere:MerchantId"]
             ?? "1211149";
-        if (merchantId == "your_payhere_merchant_id") merchantId = "1211149";
+        if (merchantId == "your_payhere_merchant_id" || string.IsNullOrWhiteSpace(merchantId)) merchantId = "1211149";
 
-        var merchantSecret = _configuration["PayHere:MerchantSecret"] 
-            ?? _configuration["PAYHERE_MERCHANT_SECRET"] 
-            ?? Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET") 
+        var merchantSecret = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET")
+            ?? _configuration["PAYHERE_MERCHANT_SECRET"]
+            ?? _configuration["PayHere:MerchantSecret"]
             ?? "4UPxLq74JtT4LUPxLq74JtT";
-        if (merchantSecret == "your_payhere_merchant_secret") merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+        if (merchantSecret == "your_payhere_merchant_secret" || string.IsNullOrWhiteSpace(merchantSecret)) merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
 
         // 1. Mandatory verification checks according to PayHere security guidelines
         if (string.IsNullOrWhiteSpace(notification.md5sig) || string.IsNullOrWhiteSpace(notification.payhere_amount))
