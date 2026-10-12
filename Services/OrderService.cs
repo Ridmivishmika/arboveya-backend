@@ -604,6 +604,21 @@ public class OrderService : IOrderService
             throw new InvalidOperationException("A refund request is already pending review for this order.");
         }
 
+        // Refund policy:
+        // 1. If delivered: buyers can request a refund immediately (damaged items, returns, etc.)
+        // 2. If NOT delivered at estimated delivery date: buyers must wait 2 weeks (14 days) past the estimated delivery date
+        var isDelivered = order.OrderStatus.Equals("Delivered", StringComparison.OrdinalIgnoreCase);
+        if (!isDelivered)
+        {
+            var estDeliveryDate = order.EstimatedDeliveryDate ?? order.CreatedAt.AddDays(21);
+            var eligibleDate = estDeliveryDate.AddDays(14);
+            if (DateTime.UtcNow < eligibleDate)
+            {
+                throw new InvalidOperationException(
+                    $"For undelivered packages, refund requests open 2 weeks after the estimated delivery date (eligible starting {eligibleDate:MMM dd, yyyy}).");
+            }
+        }
+
         var fullReason = string.IsNullOrWhiteSpace(dto.Details)
             ? dto.Reason.Trim()
             : $"{dto.Reason.Trim()} - {dto.Details.Trim()}";
@@ -645,11 +660,12 @@ public class OrderService : IOrderService
         }
 
         var amountToRefund = (refundAmount.HasValue && refundAmount.Value > 0) ? refundAmount.Value : order.TotalAmount;
+        var effectivePaymentId = !string.IsNullOrWhiteSpace(paymentId) ? paymentId.Trim() : order.PaymentId;
 
-        // If automated PayHere Sandbox refund requested and no external refund ID provided yet
+        // If automated PayHere refund requested and no external refund ID provided yet
         if (autoRefundSandbox && string.IsNullOrWhiteSpace(payHereRefundId))
         {
-            payHereRefundId = await ExecutePayHereSandboxRefundAsync(order, amountToRefund, reason ?? "Automated refund processed via PayHere Sandbox", paymentId);
+            payHereRefundId = await ExecutePayHereSandboxRefundAsync(order, amountToRefund, reason ?? "Automated refund processed via PayHere", effectivePaymentId);
         }
 
         // Restore inventory for items if order wasn't previously cancelled
@@ -673,7 +689,7 @@ public class OrderService : IOrderService
         var parts = new List<string>();
         if (autoRefundSandbox)
         {
-            parts.Add("PayHere Sandbox Auto-Refund");
+            parts.Add("PayHere Auto-Refund");
         }
         else
         {
@@ -709,9 +725,10 @@ public class OrderService : IOrderService
     }
 
     /// <summary>
-    /// Executes automated PayHere Sandbox Refund.
-    /// Calls PayHere Sandbox OAuth and Refund REST APIs if credentials are configured,
-    /// or generates an authentic PayHere Sandbox refund reference if credentials are empty during development/testing.
+    /// Executes automated PayHere Refund.
+    /// Calls PayHere OAuth and Refund REST APIs if credentials (AppId & AppSecret) are configured,
+    /// or returns an informative simulated sandbox reference if credentials are empty during development.
+    /// Throws clear exceptions if PayHere rejects the refund so the merchant knows the exact error.
     /// </summary>
     private async Task<string> ExecutePayHereSandboxRefundAsync(Order order, decimal amount, string reason, string? paymentId)
     {
@@ -722,11 +739,18 @@ public class OrderService : IOrderService
 
         if (!string.IsNullOrWhiteSpace(appId) && !string.IsNullOrWhiteSpace(appSecret))
         {
+            if (string.IsNullOrWhiteSpace(paymentId))
+            {
+                throw new InvalidOperationException(
+                    "PayHere requires the transaction Payment ID (payment_id) to process an automated refund. " +
+                    "Please provide the PayHere Payment ID or process the refund directly in your PayHere Merchant Portal (Payments > Refund) and enter the reference using Manual Portal Entry.");
+            }
+
             try
             {
                 var client = _httpClientFactory != null ? _httpClientFactory.CreateClient() : new HttpClient();
 
-                // 1. Request OAuth token from PayHere
+                // 1. Request OAuth Bearer Token from PayHere
                 var tokenRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/merchant/v1/oauth/token");
                 var basicAuthBytes = Encoding.UTF8.GetBytes($"{appId.Trim()}:{appSecret.Trim()}");
                 tokenRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(basicAuthBytes));
@@ -736,62 +760,88 @@ public class OrderService : IOrderService
                 });
 
                 var tokenResponse = await client.SendAsync(tokenRequest);
-                if (tokenResponse.IsSuccessStatusCode)
+                var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
+
+                if (!tokenResponse.IsSuccessStatusCode)
                 {
-                    var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
-                    using var tokenDoc = System.Text.Json.JsonDocument.Parse(tokenJson);
-                    if (tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenElem))
-                    {
-                        var accessToken = accessTokenElem.GetString();
-                        if (!string.IsNullOrWhiteSpace(accessToken))
-                        {
-                            // 2. Execute Refund API call
-                            var refundRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/merchant/v1/payment/refund");
-                            refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-                            var refundPayload = new Dictionary<string, object>
-                            {
-                                { "description", string.IsNullOrWhiteSpace(reason) ? $"Refund for order {order.PayHereOrderId}" : reason.Trim() },
-                                { "amount", Math.Round(amount, 2) }
-                            };
-
-                            if (!string.IsNullOrWhiteSpace(paymentId))
-                            {
-                                refundPayload["payment_id"] = paymentId.Trim();
-                            }
-
-                            refundRequest.Content = new StringContent(
-                                System.Text.Json.JsonSerializer.Serialize(refundPayload),
-                                Encoding.UTF8,
-                                "application/json");
-
-                            var refundResponse = await client.SendAsync(refundRequest);
-                            var refundContent = await refundResponse.Content.ReadAsStringAsync();
-                            _logger.LogInformation("[PayHere Refund API Response] Status: {StatusCode}, Body: {Body}", refundResponse.StatusCode, refundContent);
-
-                            if (refundResponse.IsSuccessStatusCode)
-                            {
-                                using var refundDoc = System.Text.Json.JsonDocument.Parse(refundContent);
-                                if (refundDoc.RootElement.TryGetProperty("data", out var dataElem) &&
-                                    dataElem.TryGetProperty("refund_id", out var refundIdElem))
-                                {
-                                    return refundIdElem.ToString();
-                                }
-                            }
-                        }
-                    }
+                    _logger.LogError("[PayHere OAuth Failure] Status: {StatusCode}, Body: {Body}", tokenResponse.StatusCode, tokenJson);
+                    throw new InvalidOperationException($"PayHere OAuth authentication failed ({tokenResponse.StatusCode}). Check that your PayHere App ID and App Secret are correct in backend settings.");
                 }
+
+                using var tokenDoc = System.Text.Json.JsonDocument.Parse(tokenJson);
+                if (!tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenElem) || string.IsNullOrWhiteSpace(accessTokenElem.GetString()))
+                {
+                    throw new InvalidOperationException("PayHere did not return a valid OAuth access token.");
+                }
+
+                var accessToken = accessTokenElem.GetString()!;
+
+                // 2. Execute Refund API call (POST /merchant/v1/payment/refund)
+                var refundRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/merchant/v1/payment/refund");
+                refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                var refundPayload = new Dictionary<string, object>
+                {
+                    { "payment_id", paymentId.Trim() },
+                    { "description", string.IsNullOrWhiteSpace(reason) ? $"Refund for order {order.PayHereOrderId}" : reason.Trim() },
+                    { "amount", Math.Round(amount, 2) }
+                };
+
+                refundRequest.Content = new StringContent(
+                    System.Text.Json.JsonSerializer.Serialize(refundPayload),
+                    Encoding.UTF8,
+                    "application/json");
+
+                var refundResponse = await client.SendAsync(refundRequest);
+                var refundContent = await refundResponse.Content.ReadAsStringAsync();
+                _logger.LogInformation("[PayHere Refund API Response] Status: {StatusCode}, Body: {Body}", refundResponse.StatusCode, refundContent);
+
+                if (!refundResponse.IsSuccessStatusCode)
+                {
+                    throw new InvalidOperationException($"PayHere Refund API returned HTTP {refundResponse.StatusCode}: {refundContent}");
+                }
+
+                using var refundDoc = System.Text.Json.JsonDocument.Parse(refundContent);
+                var root = refundDoc.RootElement;
+
+                // PayHere returns { "status": 1, "msg": "Refund Request Accepted", "data": { "refund_id": "..." } } on success
+                // or { "status": -1, "msg": "Payment not found / Insufficient balance" } on error
+                if (root.TryGetProperty("status", out var statusProp) && statusProp.GetInt32() != 1)
+                {
+                    var errorMsg = root.TryGetProperty("msg", out var msgProp) ? msgProp.GetString() : "PayHere rejected the refund.";
+                    throw new InvalidOperationException($"PayHere Refund rejected: {errorMsg}");
+                }
+
+                if (root.TryGetProperty("data", out var dataElem) && dataElem.TryGetProperty("refund_id", out var refundIdElem))
+                {
+                    return refundIdElem.ToString();
+                }
+
+                return $"PH-REF-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            }
+            catch (InvalidOperationException)
+            {
+                throw;
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "[PayHere Sandbox API] Automated refund API call encountered an error. Falling back to sandbox reference generation.");
+                _logger.LogError(ex, "[PayHere API] Automated refund API call encountered an unexpected error.");
+                throw new InvalidOperationException($"PayHere automated refund failed: {ex.Message}. You can issue the refund directly in your PayHere Merchant Dashboard and record it using Manual Portal Entry.");
             }
         }
 
-        // Generate authentic PayHere Sandbox refund reference
-        var generatedRefundId = $"PH-SANDBOX-REF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
-        _logger.LogInformation("[PayHere Sandbox Mode] Automated refund successfully processed for Order '{OrderId}'. Generated Refund ID: '{RefundId}'",
-            order.Id, generatedRefundId);
+        // If credentials are NOT configured:
+        if (!isSandbox)
+        {
+            throw new InvalidOperationException(
+                "PayHere AppId and AppSecret are not configured in the server environment. " +
+                "To process refunds via PayHere, obtain your App ID and App Secret from PayHere Dashboard (Settings > API Keys) and configure PAYHERE_APP_ID and PAYHERE_APP_SECRET, or perform the refund directly in merchant.payhere.lk and use 'Manual Portal Entry'.");
+        }
+
+        // In Sandbox mode without credentials: generate simulated reference and inform via log
+        var generatedRefundId = $"PH-SANDBOX-DEMO-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+        _logger.LogWarning("[PayHere Sandbox Simulation] PAYHERE_APP_ID and PAYHERE_APP_SECRET are empty. Simulated sandbox refund generated: '{RefundId}'",
+            generatedRefundId);
         return generatedRefundId;
     }
 
@@ -826,6 +876,7 @@ public class OrderService : IOrderService
             PaymentStatus = order.PaymentStatus,
             OrderStatus = order.OrderStatus,
             PayHereOrderId = order.PayHereOrderId,
+            PaymentId = order.PaymentId,
             TrackingNumber = order.TrackingNumber,
             ShippingCarrier = order.ShippingCarrier,
             TrackingUrl = order.TrackingUrl,
@@ -933,6 +984,10 @@ public class OrderService : IOrderService
 
             order.PaymentStatus = "Paid";
             order.OrderStatus = "Processing";
+            if (!string.IsNullOrWhiteSpace(notification.payment_id))
+            {
+                order.PaymentId = notification.payment_id.Trim();
+            }
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
             _logger.LogInformation("Order '{OrderId}' successfully marked Paid via PayHere IPN notification. PaymentId: {PaymentId}.",
@@ -946,6 +1001,10 @@ public class OrderService : IOrderService
         else if (notification.status_code == 0)
         {
             order.PaymentStatus = "Pending";
+            if (!string.IsNullOrWhiteSpace(notification.payment_id))
+            {
+                order.PaymentId = notification.payment_id.Trim();
+            }
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
             _logger.LogInformation("Order '{OrderId}' payment is Pending in PayHere. PaymentId: {PaymentId}.",
@@ -994,6 +1053,10 @@ public class OrderService : IOrderService
 
         order.PaymentStatus = "Paid";
         order.OrderStatus = "Processing";
+        if (!string.IsNullOrWhiteSpace(paymentId))
+        {
+            order.PaymentId = paymentId.Trim();
+        }
         order.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 

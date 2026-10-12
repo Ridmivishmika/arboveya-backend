@@ -90,6 +90,7 @@ public class OrderResponseDto
     public string PaymentStatus { get; set; } = string.Empty;
     public string OrderStatus { get; set; } = string.Empty;
     public string PayHereOrderId { get; set; } = string.Empty;
+    public string? PaymentId { get; set; }
     public string? TrackingNumber { get; set; }
     public string? ShippingCarrier { get; set; }
     public string? TrackingUrl { get; set; }

@@ -41,6 +41,9 @@ public class Order
     [MaxLength(100)]
     public string PayHereOrderId { get; set; } = string.Empty;
 
+    [MaxLength(100)]
+    public string? PaymentId { get; set; }
+
     [MaxLength(150)]
     public string? TrackingNumber { get; set; }
 
