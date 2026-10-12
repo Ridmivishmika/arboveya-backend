@@ -118,7 +118,7 @@ public class ContactMessageService : IContactMessageService
 <body>
   <div class=""container"">
     <div class=""header"">
-      <h1>🌿 ARBOVEYA APOTHECARY</h1>
+      <h1>ARBOVEYA</h1>
       <p>Customer & Merchant Support Center</p>
     </div>
     <div class=""content"">
@@ -160,8 +160,7 @@ public class ContactMessageService : IContactMessageService
       </div>
     </div>
     <div class=""footer"">
-      This inquiry was delivered to the Arboveya administrator mailbox (<strong>{adminEmail}</strong>).<br/>
-      You can reply directly to this email to respond directly to <strong>{HttpUtility.HtmlEncode(message.Name)}</strong>.
+      &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
     </div>
   </div>
 </body>

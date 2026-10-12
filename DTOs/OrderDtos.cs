@@ -129,6 +129,20 @@ public class RefundOrderRequestDto
 
     [Range(0.01, 1000000)]
     public decimal? Amount { get; set; }
+
+    [MaxLength(100)]
+    public string? PayHereRefundId { get; set; }
+
+    [MaxLength(100)]
+    public string? PaymentId { get; set; }
+
+    /// <summary>
+    /// When true, executes automated refund via PayHere Sandbox mode (generating sandbox refund reference or calling PayHere sandbox API).
+    /// </summary>
+    public bool AutoRefundSandbox { get; set; } = true;
+
+    [MaxLength(500)]
+    public string? Notes { get; set; }
 }
 
 public class PayHereCheckoutDetailsDto

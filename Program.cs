@@ -33,8 +33,9 @@ LoadEnvFile(Path.Combine(Directory.GetCurrentDirectory(), "..", ".env"));
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
-// 1. Add Controllers
+// 1. Add Controllers and HttpClient
 builder.Services.AddControllers();
+builder.Services.AddHttpClient();
 
 // 2. Configure PostgreSQL DbContext
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")

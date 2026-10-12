@@ -29,7 +29,7 @@ public class EmailService : IEmailService
             ?? (string.IsNullOrWhiteSpace(smtpUser) ? "care@arboveya.com" : smtpUser);
         var fromName = _configuration["Email:FromName"]
             ?? Environment.GetEnvironmentVariable("SMTP_FROM_NAME")
-            ?? "Arboveya Herbal Botanical";
+            ?? "Arboveya";
 
         int smtpPort = 587;
         if (!string.IsNullOrWhiteSpace(smtpPortStr) && int.TryParse(smtpPortStr, out var parsedPort))

@@ -301,7 +301,14 @@ public class OrdersController : ControllerBase
     {
         try
         {
-            var refunded = await _orderService.RefundOrderAsync(id, request?.Reason, request?.Amount);
+            var refunded = await _orderService.RefundOrderAsync(
+                id, 
+                request?.Reason, 
+                request?.Amount, 
+                request?.PayHereRefundId, 
+                request?.Notes,
+                request?.AutoRefundSandbox ?? true,
+                request?.PaymentId);
             if (refunded == null)
             {
                 return NotFound(new { message = $"Order with ID '{id}' was not found." });

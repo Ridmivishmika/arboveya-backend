@@ -14,7 +14,14 @@ public interface IOrderService
     Task<OrderResponseDto?> UpdateOrderTrackingAsync(Guid id, UpdateOrderTrackingDto dto);
     Task<bool> ProcessPayHereNotificationAsync(PayHereNotificationDto notification);
     Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId);
-    Task<OrderResponseDto?> RefundOrderAsync(Guid orderId, string? reason = null, decimal? refundAmount = null);
+    Task<OrderResponseDto?> RefundOrderAsync(
+        Guid orderId, 
+        string? reason = null, 
+        decimal? refundAmount = null, 
+        string? payHereRefundId = null, 
+        string? notes = null,
+        bool autoRefundSandbox = true,
+        string? paymentId = null);
     Task<OrderResponseDto?> RequestRefundAsync(Guid orderId, CustomerRequestRefundDto dto, Guid? currentUserId, string? userEmail);
 }
 

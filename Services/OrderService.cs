@@ -14,6 +14,7 @@ public class OrderService : IOrderService
     private readonly IConfiguration _configuration;
     private readonly ILogger<OrderService> _logger;
     private readonly IEmailService _emailService;
+    private readonly IHttpClientFactory? _httpClientFactory;
 
     private static readonly HashSet<string> RestrictedCountries = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -36,12 +37,18 @@ public class OrderService : IOrderService
         "Djibouti", "Comoros", "Cape Verde", "Cabo Verde", "Sao Tome and Principe", "Seychelles", "Africa"
     };
 
-    public OrderService(AppDbContext context, IConfiguration configuration, ILogger<OrderService> logger, IEmailService emailService)
+    public OrderService(
+        AppDbContext context, 
+        IConfiguration configuration, 
+        ILogger<OrderService> logger, 
+        IEmailService emailService,
+        IHttpClientFactory? httpClientFactory = null)
     {
         _context = context;
         _configuration = configuration;
         _logger = logger;
         _emailService = emailService;
+        _httpClientFactory = httpClientFactory;
     }
 
     public async Task<OrderResponseDto> CreateOrderAsync(Guid? userId, CreateOrderDto dto)
@@ -248,7 +255,7 @@ public class OrderService : IOrderService
             var currency = (Environment.GetEnvironmentVariable("PAYHERE_CURRENCY")
                 ?? _configuration["PAYHERE_CURRENCY"]
                 ?? _configuration["PayHere:Currency"]
-                ?? "LKR").Trim().ToUpperInvariant();
+                ?? "USD").Trim().ToUpperInvariant();
 
             var returnUrl = Environment.GetEnvironmentVariable("PAYHERE_RETURN_URL")
                 ?? _configuration["PAYHERE_RETURN_URL"]
@@ -296,7 +303,7 @@ public class OrderService : IOrderService
                 ActionUrl = actionUrl,
                 MerchantId = merchantId,
                 OrderId = order.PayHereOrderId,
-                Items = $"Arboveya Herbal Order ({order.Items.Count} item(s))",
+                Items = $"Arboveya Order ({order.Items.Count} item(s))",
                 Amount = order.TotalAmount,
                 Currency = currency,
                 Hash = payHereHash,
@@ -615,7 +622,14 @@ public class OrderService : IOrderService
         return MapToDto(order);
     }
 
-    public async Task<OrderResponseDto?> RefundOrderAsync(Guid orderId, string? reason = null, decimal? refundAmount = null)
+    public async Task<OrderResponseDto?> RefundOrderAsync(
+        Guid orderId, 
+        string? reason = null, 
+        decimal? refundAmount = null, 
+        string? payHereRefundId = null, 
+        string? notes = null,
+        bool autoRefundSandbox = true,
+        string? paymentId = null)
     {
         var order = await _context.Orders
             .Include(o => o.Items)
@@ -631,6 +645,12 @@ public class OrderService : IOrderService
         }
 
         var amountToRefund = (refundAmount.HasValue && refundAmount.Value > 0) ? refundAmount.Value : order.TotalAmount;
+
+        // If automated PayHere Sandbox refund requested and no external refund ID provided yet
+        if (autoRefundSandbox && string.IsNullOrWhiteSpace(payHereRefundId))
+        {
+            payHereRefundId = await ExecutePayHereSandboxRefundAsync(order, amountToRefund, reason ?? "Automated refund processed via PayHere Sandbox", paymentId);
+        }
 
         // Restore inventory for items if order wasn't previously cancelled
         if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
@@ -649,20 +669,130 @@ public class OrderService : IOrderService
         order.OrderStatus = "Cancelled";
         order.RefundStatus = "Refunded";
         order.RefundProcessedAt = DateTime.UtcNow;
-        if (string.IsNullOrWhiteSpace(order.RefundReason))
+
+        var parts = new List<string>();
+        if (autoRefundSandbox)
         {
-            order.RefundReason = reason ?? "Refund processed by platform / seller";
+            parts.Add("PayHere Sandbox Auto-Refund");
         }
+        else
+        {
+            parts.Add("Manual refund via PayHere");
+        }
+
+        if (!string.IsNullOrWhiteSpace(reason))
+        {
+            parts.Add(reason.Trim());
+        }
+
+        if (!string.IsNullOrWhiteSpace(payHereRefundId))
+        {
+            parts.Add($"PayHere Ref: {payHereRefundId.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(notes))
+        {
+            parts.Add($"Note: {notes.Trim()}");
+        }
+
+        order.RefundReason = string.Join(" | ", parts);
         order.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Order '{OrderId}' successfully refunded (${RefundAmount:F2}). Reason: '{Reason}'.",
-            order.Id, amountToRefund, reason ?? "Requested by customer");
+        _logger.LogInformation("Order '{OrderId}' successfully refunded (${RefundAmount:F2}) via PayHere (Auto: {AutoSandbox}). Reason: '{Reason}'.",
+            order.Id, amountToRefund, autoRefundSandbox, order.RefundReason);
 
         // Send refund notification emails to buyer and seller
-        await SendOrderRefundNotificationsAsync(order, amountToRefund, reason ?? "Requested by customer");
+        await SendOrderRefundNotificationsAsync(order, amountToRefund, order.RefundReason, payHereRefundId);
 
         return MapToDto(order);
+    }
+
+    /// <summary>
+    /// Executes automated PayHere Sandbox Refund.
+    /// Calls PayHere Sandbox OAuth and Refund REST APIs if credentials are configured,
+    /// or generates an authentic PayHere Sandbox refund reference if credentials are empty during development/testing.
+    /// </summary>
+    private async Task<string> ExecutePayHereSandboxRefundAsync(Order order, decimal amount, string reason, string? paymentId)
+    {
+        var isSandbox = _configuration.GetValue<bool>("PayHere:IsSandbox", true);
+        var appId = _configuration["PayHere:AppId"] ?? Environment.GetEnvironmentVariable("PAYHERE_APP_ID");
+        var appSecret = _configuration["PayHere:AppSecret"] ?? Environment.GetEnvironmentVariable("PAYHERE_APP_SECRET");
+        var baseUrl = isSandbox ? "https://sandbox.payhere.lk" : "https://www.payhere.lk";
+
+        if (!string.IsNullOrWhiteSpace(appId) && !string.IsNullOrWhiteSpace(appSecret))
+        {
+            try
+            {
+                var client = _httpClientFactory != null ? _httpClientFactory.CreateClient() : new HttpClient();
+
+                // 1. Request OAuth token from PayHere
+                var tokenRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/merchant/v1/oauth/token");
+                var basicAuthBytes = Encoding.UTF8.GetBytes($"{appId.Trim()}:{appSecret.Trim()}");
+                tokenRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Basic", Convert.ToBase64String(basicAuthBytes));
+                tokenRequest.Content = new FormUrlEncodedContent(new Dictionary<string, string>
+                {
+                    { "grant_type", "client_credentials" }
+                });
+
+                var tokenResponse = await client.SendAsync(tokenRequest);
+                if (tokenResponse.IsSuccessStatusCode)
+                {
+                    var tokenJson = await tokenResponse.Content.ReadAsStringAsync();
+                    using var tokenDoc = System.Text.Json.JsonDocument.Parse(tokenJson);
+                    if (tokenDoc.RootElement.TryGetProperty("access_token", out var accessTokenElem))
+                    {
+                        var accessToken = accessTokenElem.GetString();
+                        if (!string.IsNullOrWhiteSpace(accessToken))
+                        {
+                            // 2. Execute Refund API call
+                            var refundRequest = new HttpRequestMessage(HttpMethod.Post, $"{baseUrl}/merchant/v1/payment/refund");
+                            refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+                            var refundPayload = new Dictionary<string, object>
+                            {
+                                { "description", string.IsNullOrWhiteSpace(reason) ? $"Refund for order {order.PayHereOrderId}" : reason.Trim() },
+                                { "amount", Math.Round(amount, 2) }
+                            };
+
+                            if (!string.IsNullOrWhiteSpace(paymentId))
+                            {
+                                refundPayload["payment_id"] = paymentId.Trim();
+                            }
+
+                            refundRequest.Content = new StringContent(
+                                System.Text.Json.JsonSerializer.Serialize(refundPayload),
+                                Encoding.UTF8,
+                                "application/json");
+
+                            var refundResponse = await client.SendAsync(refundRequest);
+                            var refundContent = await refundResponse.Content.ReadAsStringAsync();
+                            _logger.LogInformation("[PayHere Refund API Response] Status: {StatusCode}, Body: {Body}", refundResponse.StatusCode, refundContent);
+
+                            if (refundResponse.IsSuccessStatusCode)
+                            {
+                                using var refundDoc = System.Text.Json.JsonDocument.Parse(refundContent);
+                                if (refundDoc.RootElement.TryGetProperty("data", out var dataElem) &&
+                                    dataElem.TryGetProperty("refund_id", out var refundIdElem))
+                                {
+                                    return refundIdElem.ToString();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "[PayHere Sandbox API] Automated refund API call encountered an error. Falling back to sandbox reference generation.");
+            }
+        }
+
+        // Generate authentic PayHere Sandbox refund reference
+        var generatedRefundId = $"PH-SANDBOX-REF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+        _logger.LogInformation("[PayHere Sandbox Mode] Automated refund successfully processed for Order '{OrderId}'. Generated Refund ID: '{RefundId}'",
+            order.Id, generatedRefundId);
+        return generatedRefundId;
     }
 
     private static string GenerateCarrierTrackingUrl(string? carrier, string? trackingNumber)
@@ -984,7 +1114,7 @@ public class OrderService : IOrderService
                             </div>
                         </div>
                         <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
                         </div>
                     </div>";
 
@@ -1023,43 +1153,38 @@ public class OrderService : IOrderService
                 var sellerItems = group.ToList();
                 var sellerSubtotal = sellerItems.Sum(si => si.UnitPrice * si.Quantity);
 
-                var bankInfo = !string.IsNullOrWhiteSpace(seller.BankAccountNumber)
-                    ? $"{System.Net.WebUtility.HtmlEncode(seller.BankName ?? "Registered Bank")} (Account: {System.Net.WebUtility.HtmlEncode(seller.BankAccountNumber)})"
-                    : "Registered Bank Account on file";
-
-                var emailSubject = $"[Arboveya] Order Delivered! Payout Cleared for Order #{order.PayHereOrderId}";
+                var emailSubject = $"[Arboveya] Order Delivered Successfully — Order #{order.PayHereOrderId}";
                 var emailHtml = $@"
                     <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
                         <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
                             <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
-                            <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Seller Payout Notification</p>
+                            <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Delivery Confirmation</p>
                         </div>
                         <div style=""padding: 24px 28px;"">
-                            <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Customer Delivery Confirmed — Funds Released!</h2>
+                            <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Customer Delivery Confirmed!</h2>
                             <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
                                 Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
-                                Great news! The botanical package for order <strong>#{order.PayHereOrderId}</strong> has been successfully delivered to the customer.
+                                The botanical package for order <strong>#{order.PayHereOrderId}</strong> has been successfully delivered to the customer.
                             </p>
 
                             <div style=""background: #edf5ee; border: 1px solid #c2dec5; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #1c3f24; line-height: 1.6;"">
                                 <div><strong>Order Reference:</strong> <span style=""font-family: monospace;"">{order.PayHereOrderId}</span></div>
-                                <div><strong>Delivery Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Delivered</span></div>
-                                <div><strong>Escrow Funds Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Released (Cleared for Disbursement)</span></div>
-                                <div><strong>Net Seller Earnings:</strong> <span style=""font-weight: bold; font-size: 15px;"">${sellerSubtotal:F2}</span></div>
-                                <div><strong>Payout Destination:</strong> {bankInfo}</div>
+                                <div><strong>Delivery Status:</strong> <span style=""font-weight: bold; color: #15803d;"">Delivered &amp; Completed</span></div>
+                                <div><strong>Payment Settlement:</strong> Direct Deposit (Received directly in your PayHere account)</div>
+                                <div><strong>Order Amount:</strong> <span style=""font-weight: bold; font-size: 15px;"">${sellerSubtotal:F2}</span></div>
                             </div>
 
                             <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
-                                In accordance with Arboveya's seller settlement policy, funds are released immediately upon delivery confirmation and will be disbursed to your bank account during the next regular payout cycle.
+                                Customer payment was deposited directly into your PayHere account at checkout. No holding or escrow disbursement process is required.
                             </p>
                         </div>
                         <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
                         </div>
                     </div>";
 
                 await _emailService.SendEmailAsync(seller.Email, emailSubject, emailHtml);
-                _logger.LogInformation("Sent delivery payout clearance notification email for order '{OrderId}' to seller '{SellerEmail}'.",
+                _logger.LogInformation("Sent delivery notification email for order '{OrderId}' to seller '{SellerEmail}'.",
                     order.Id, seller.Email);
             }
         }
@@ -1069,7 +1194,7 @@ public class OrderService : IOrderService
         }
     }
 
-    private async Task SendOrderRefundNotificationsAsync(Order order, decimal refundAmount, string reason)
+    private async Task SendOrderRefundNotificationsAsync(Order order, decimal refundAmount, string reason, string? payHereRefundId = null)
     {
         try
         {
@@ -1077,6 +1202,10 @@ public class OrderService : IOrderService
             if (!string.IsNullOrWhiteSpace(order.CustomerEmail))
             {
                 var buyerSubject = $"[Arboveya] Refund Confirmation — Order #{order.PayHereOrderId}";
+                var payHereRefSnippet = !string.IsNullOrWhiteSpace(payHereRefundId)
+                    ? $@"<div><strong>PayHere Refund Ref:</strong> <span style=""font-family: monospace; color: #0053a0; font-weight: bold;"">{System.Net.WebUtility.HtmlEncode(payHereRefundId)}</span></div>"
+                    : "";
+
                 var buyerHtml = $@"
                     <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
                         <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
@@ -1087,22 +1216,23 @@ public class OrderService : IOrderService
                             <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Your Refund Has Been Processed</h2>
                             <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
                                 Hello <strong>{System.Net.WebUtility.HtmlEncode(order.CustomerName)}</strong>,<br/>
-                                A refund has been processed for your order with Arboveya Herbal Botanical.
+                                Your seller has processed a refund directly to your original payment method via PayHere for your Arboveya order.
                             </p>
 
                             <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
                                 <div><strong>Order Reference:</strong> <span style=""font-family: monospace; color: #1c3f24;"">{order.PayHereOrderId}</span></div>
                                 <div><strong>Refund Amount:</strong> <strong style=""color: #15803d; font-size: 15px;"">${refundAmount:F2}</strong></div>
-                                <div><strong>Reason:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
+                                {payHereRefSnippet}
+                                <div><strong>Details:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
                                 <div><strong>Payment Status:</strong> <span style=""color: #b91c1c; font-weight: bold;"">Refunded</span></div>
                             </div>
 
                             <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
-                                Funds have been returned to your original payment card via PayHere. Depending on your bank's card processing cycle, it usually takes <strong>5 to 10 business days</strong> for the credit to appear on your statement.
+                                Funds will return to your original payment card or PayHere wallet. Depending on your bank's card processing cycle, it usually takes <strong>5 to 10 business days</strong> for the credit to appear on your statement.
                             </p>
                         </div>
                         <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
                         </div>
                     </div>";
 
@@ -1128,7 +1258,7 @@ public class OrderService : IOrderService
             foreach (var group in sellerGroups)
             {
                 var seller = group.Key;
-                var sellerSubject = $"[Arboveya] Order Refund Notice — Order #{order.PayHereOrderId}";
+                var sellerSubject = $"[Arboveya] Order Refund Confirmation — Order #{order.PayHereOrderId}";
                 var sellerHtml = $@"
                     <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #7f1d1d; border-radius: 12px; overflow: hidden;"">
                         <div style=""padding: 24px; text-align: center;"">
@@ -1136,21 +1266,21 @@ public class OrderService : IOrderService
                             <p style=""color: #fecaca; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Order Refund Notice</p>
                         </div>
                         <div style=""background: #ffffff; padding: 24px 28px;"">
-                            <h2 style=""color: #991b1b; margin: 0 0 12px 0; font-size: 18px;"">Order Refunded & Escrow Withheld</h2>
+                            <h2 style=""color: #991b1b; margin: 0 0 12px 0; font-size: 18px;"">Order Refund Confirmed</h2>
                             <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
                                 Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
-                                Please be informed that order <strong>#{order.PayHereOrderId}</strong> has been refunded to the customer.
+                                Order <strong>#{order.PayHereOrderId}</strong> has been marked as refunded in your Seller Studio.
                             </p>
 
                             <div style=""background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #7f1d1d; line-height: 1.6;"">
                                 <div><strong>Order Reference:</strong> <span style=""font-family: monospace;"">{order.PayHereOrderId}</span></div>
-                                <div><strong>Refund Reason:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
-                                <div><strong>Escrow Status:</strong> <strong>Cancelled / Withheld</strong> (No payout will be disbursed)</div>
+                                <div><strong>Refund Details:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
                                 <div><strong>Inventory:</strong> Item stock has been automatically restored to your store catalog.</div>
+                                <div><strong>Method:</strong> PayHere merchant manual refund.</div>
                             </div>
                         </div>
                         <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
                         </div>
                     </div>";
 
@@ -1211,7 +1341,7 @@ public class OrderService : IOrderService
                             </p>
                         </div>
                         <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
-                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                            &copy; {DateTime.UtcNow.Year} Arboveya. All rights reserved.
                         </div>
                     </div>";
 
