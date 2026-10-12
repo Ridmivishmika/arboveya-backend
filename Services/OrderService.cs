@@ -237,15 +237,19 @@ public class OrderService : IOrderService
             // Populate PayHere details for client-side checkout
             var merchantId = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID")
                 ?? _configuration["PAYHERE_MERCHANT_ID"]
-                ?? _configuration["PayHere:MerchantId"]
-                ?? "1211149";
-            if (merchantId == "your_payhere_merchant_id" || string.IsNullOrWhiteSpace(merchantId)) merchantId = "1211149";
+                ?? _configuration["PayHere:MerchantId"];
+            if (string.IsNullOrWhiteSpace(merchantId) || merchantId == "your_payhere_merchant_id")
+            {
+                merchantId = "1238214";
+            }
 
             var merchantSecret = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET")
                 ?? _configuration["PAYHERE_MERCHANT_SECRET"]
-                ?? _configuration["PayHere:MerchantSecret"]
-                ?? "4UPxLq74JtT4LUPxLq74JtT";
-            if (merchantSecret == "your_payhere_merchant_secret" || string.IsNullOrWhiteSpace(merchantSecret)) merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+                ?? _configuration["PayHere:MerchantSecret"];
+            if (string.IsNullOrWhiteSpace(merchantSecret) || merchantSecret == "your_payhere_merchant_secret")
+            {
+                merchantSecret = "NTQ2MjU5MjQxMTM1MTk5MDUzNDIwNzk0NDMxMDIxMDQ3ODA5Mzk=";
+            }
 
             var isSandbox = (Environment.GetEnvironmentVariable("PAYHERE_SANDBOX")
                 ?? _configuration["PAYHERE_SANDBOX"]
@@ -839,7 +843,7 @@ public class OrderService : IOrderService
         }
 
         // In Sandbox mode without credentials: generate simulated reference and inform via log
-        var generatedRefundId = $"PH-SANDBOX-DEMO-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
+        var generatedRefundId = $"PH-REF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
         _logger.LogWarning("[PayHere Sandbox Simulation] PAYHERE_APP_ID and PAYHERE_APP_SECRET are empty. Simulated sandbox refund generated: '{RefundId}'",
             generatedRefundId);
         return generatedRefundId;
@@ -912,15 +916,19 @@ public class OrderService : IOrderService
 
         var merchantId = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_ID")
             ?? _configuration["PAYHERE_MERCHANT_ID"]
-            ?? _configuration["PayHere:MerchantId"]
-            ?? "1211149";
-        if (merchantId == "your_payhere_merchant_id" || string.IsNullOrWhiteSpace(merchantId)) merchantId = "1211149";
+            ?? _configuration["PayHere:MerchantId"];
+        if (string.IsNullOrWhiteSpace(merchantId) || merchantId == "your_payhere_merchant_id")
+        {
+            merchantId = "1238214";
+        }
 
         var merchantSecret = Environment.GetEnvironmentVariable("PAYHERE_MERCHANT_SECRET")
             ?? _configuration["PAYHERE_MERCHANT_SECRET"]
-            ?? _configuration["PayHere:MerchantSecret"]
-            ?? "4UPxLq74JtT4LUPxLq74JtT";
-        if (merchantSecret == "your_payhere_merchant_secret" || string.IsNullOrWhiteSpace(merchantSecret)) merchantSecret = "4UPxLq74JtT4LUPxLq74JtT";
+            ?? _configuration["PayHere:MerchantSecret"];
+        if (string.IsNullOrWhiteSpace(merchantSecret) || merchantSecret == "your_payhere_merchant_secret")
+        {
+            merchantSecret = "NTQ2MjU5MjQxMTM1MTk5MDUzNDIwNzk0NDMxMDIxMDQ3ODA5Mzk=";
+        }
 
         // 1. Mandatory verification checks according to PayHere security guidelines
         if (string.IsNullOrWhiteSpace(notification.md5sig) || string.IsNullOrWhiteSpace(notification.payhere_amount))
