@@ -55,6 +55,21 @@ public class Order
 
     public DateTime? ShippedAt { get; set; }
 
+    public DateTime? EstimatedDeliveryDate { get; set; }
+
+    [MaxLength(500)]
+    public string? TrackingUrl { get; set; }
+
+    [MaxLength(50)]
+    public string RefundStatus { get; set; } = "None";
+
+    [MaxLength(500)]
+    public string? RefundReason { get; set; }
+
+    public DateTime? RefundRequestedAt { get; set; }
+
+    public DateTime? RefundProcessedAt { get; set; }
+
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public DateTime? UpdatedAt { get; set; }

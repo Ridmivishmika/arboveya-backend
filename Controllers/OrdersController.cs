@@ -320,6 +320,49 @@ public class OrdersController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Request refund as a customer (e.g. package not delivered within estimated delivery time or damaged / return)
+    /// </summary>
+    [HttpPost("{id:guid}/request-refund")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> RequestRefund(Guid id, [FromBody] CustomerRequestRefundDto request)
+    {
+        if (!ModelState.IsValid)
+        {
+            return BadRequest(ModelState);
+        }
+
+        try
+        {
+            var currentUserId = GetCurrentUserId();
+            var userEmail = User.FindFirstValue(ClaimTypes.Email);
+
+            var updated = await _orderService.RequestRefundAsync(id, request, currentUserId, userEmail);
+            if (updated == null)
+            {
+                return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            }
+
+            return Ok(updated);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return Unauthorized(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error submitting refund request for order {OrderId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while submitting your refund request." });
+        }
+    }
+
     private Guid? GetCurrentUserId()
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);

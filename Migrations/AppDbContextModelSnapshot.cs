@@ -196,6 +196,9 @@ namespace Arboveya.Api.Migrations
                         .HasMaxLength(150)
                         .HasColumnType("character varying(150)");
 
+                    b.Property<DateTime?>("EstimatedDeliveryDate")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("OrderStatus")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -211,13 +214,50 @@ namespace Arboveya.Api.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<DateTime?>("RefundProcessedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RefundReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime?>("RefundRequestedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("RefundStatus")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime?>("ShippedAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("ShippingAddress")
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ShippingCarrier")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<decimal>("ShippingCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("ShippingMethod")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
                     b.Property<decimal>("TotalAmount")
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("TrackingNumber")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("TrackingUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("timestamp with time zone");
@@ -288,6 +328,14 @@ namespace Arboveya.Api.Migrations
                     b.Property<Guid?>("CategoryId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Condition")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CountryOfOrigin")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -296,8 +344,19 @@ namespace Arboveya.Api.Migrations
                     b.Property<string>("Description")
                         .HasColumnType("text");
 
+                    b.Property<string>("EstimatedDeliveryTime")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("GalleryImages")
                         .HasColumnType("text");
+
+                    b.Property<string>("HandlingTime")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("HowToUse")
                         .HasColumnType("text");
@@ -312,8 +371,14 @@ namespace Arboveya.Api.Migrations
                     b.Property<bool>("IsBestSeller")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsFreeShipping")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("KeyBenefits")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("ManufactureDate")
+                        .HasColumnType("timestamp with time zone");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -324,8 +389,24 @@ namespace Arboveya.Api.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("decimal(18,2)");
 
+                    b.Property<string>("ReturnPolicy")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("SellerId")
                         .HasColumnType("uuid");
+
+                    b.Property<decimal>("ShippingCost")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<string>("ShippingMethod")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("ShippingOptions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("Specifications")
+                        .HasColumnType("text");
 
                     b.Property<int>("StockQuantity")
                         .HasColumnType("integer");
@@ -473,10 +554,10 @@ namespace Arboveya.Api.Migrations
                         {
                             Id = 1,
                             AboutUsContent = "Arboveya is dedicated to bringing vibrant, healthy plants, botanical care accessories, and sustainable greenery into your homes and workplaces.",
-                            FacebookLink = "https://facebook.com/arboveya",
+                            FacebookLink = "https://www.facebook.com/share/1DspKR2vtm/",
                             HomePageHeroText = "Bring Nature Indoors with Arboveya's Premium Botanical Collection",
                             UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, 0, DateTimeKind.Utc),
-                            WhatsAppNumber = "+94771234567"
+                            WhatsAppNumber = "0717981355"
                         });
                 });
 
@@ -488,6 +569,26 @@ namespace Arboveya.Api.Migrations
 
                     b.Property<string>("Address")
                         .HasColumnType("text");
+
+                    b.Property<string>("BankAccountName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("BankAccountNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("BankBranch")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("BankName")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)");
+
+                    b.Property<string>("BankRoutingCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()

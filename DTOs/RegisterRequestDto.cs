@@ -25,6 +25,9 @@ public class RegisterRequestDto
 
     public string? Address { get; set; }
 
+    [StringLength(50, ErrorMessage = "Zip code cannot exceed 50 characters")]
+    public string? ZipCode { get; set; }
+
     [StringLength(100)]
     public string? Nationality { get; set; }
 

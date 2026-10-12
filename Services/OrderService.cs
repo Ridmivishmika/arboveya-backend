@@ -209,6 +209,7 @@ public class OrderService : IOrderService
                 PaymentStatus = "Pending",
                 OrderStatus = "Processing",
                 PayHereOrderId = payHereOrderId,
+                EstimatedDeliveryDate = DateTime.UtcNow.AddDays(7 + (shippingMethod != null && (shippingMethod.Contains("Express", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Priority", StringComparison.OrdinalIgnoreCase)) ? 2 : (shippingMethod != null && (shippingMethod.Contains("Free", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Economy", StringComparison.OrdinalIgnoreCase)) ? 7 : 5)) + 14),
                 CreatedAt = DateTime.UtcNow,
                 Items = orderItems
             };
@@ -539,6 +540,10 @@ public class OrderService : IOrderService
             order.ShippingCarrier = dto.ShippingCarrier.Trim();
         }
 
+        order.TrackingUrl = !string.IsNullOrWhiteSpace(dto.TrackingUrl)
+            ? dto.TrackingUrl.Trim()
+            : GenerateCarrierTrackingUrl(order.ShippingCarrier, order.TrackingNumber);
+
         order.OrderStatus = string.IsNullOrWhiteSpace(dto.OrderStatus) ? "Shipped" : dto.OrderStatus.Trim();
         order.ShippedAt = DateTime.UtcNow;
         order.UpdatedAt = DateTime.UtcNow;
@@ -555,6 +560,57 @@ public class OrderService : IOrderService
         {
             await SendDeliveredOrderPayoutEligibilityNotificationAsync(order);
         }
+
+        return MapToDto(order);
+    }
+
+    public async Task<OrderResponseDto?> RequestRefundAsync(Guid orderId, CustomerRequestRefundDto dto, Guid? currentUserId, string? userEmail)
+    {
+        var order = await _context.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+                    .ThenInclude(p => p!.Seller)
+            .FirstOrDefaultAsync(o => o.Id == orderId);
+
+        if (order == null) return null;
+
+        if (currentUserId.HasValue && order.UserId.HasValue && order.UserId.Value != currentUserId.Value)
+        {
+            if (string.IsNullOrWhiteSpace(userEmail) || !order.CustomerEmail.Equals(userEmail.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                throw new UnauthorizedAccessException("You are not authorized to request a refund for this order.");
+            }
+        }
+
+        if (order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("This order has already been refunded.");
+        }
+
+        if (!order.PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("Refund can only be requested for orders with confirmed payment.");
+        }
+
+        if (order.RefundStatus.Equals("Requested", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException("A refund request is already pending review for this order.");
+        }
+
+        var fullReason = string.IsNullOrWhiteSpace(dto.Details)
+            ? dto.Reason.Trim()
+            : $"{dto.Reason.Trim()} - {dto.Details.Trim()}";
+
+        order.RefundStatus = "Requested";
+        order.RefundReason = fullReason;
+        order.RefundRequestedAt = DateTime.UtcNow;
+        order.UpdatedAt = DateTime.UtcNow;
+
+        await _context.SaveChangesAsync();
+
+        _logger.LogInformation("Refund requested for Order '{OrderId}'. Reason: '{Reason}'.", order.Id, fullReason);
+
+        await SendRefundRequestSellerNotificationAsync(order, fullReason);
 
         return MapToDto(order);
     }
@@ -591,6 +647,12 @@ public class OrderService : IOrderService
 
         order.PaymentStatus = "Refunded";
         order.OrderStatus = "Cancelled";
+        order.RefundStatus = "Refunded";
+        order.RefundProcessedAt = DateTime.UtcNow;
+        if (string.IsNullOrWhiteSpace(order.RefundReason))
+        {
+            order.RefundReason = reason ?? "Refund processed by platform / seller";
+        }
         order.UpdatedAt = DateTime.UtcNow;
         await _context.SaveChangesAsync();
 
@@ -601,6 +663,24 @@ public class OrderService : IOrderService
         await SendOrderRefundNotificationsAsync(order, amountToRefund, reason ?? "Requested by customer");
 
         return MapToDto(order);
+    }
+
+    private static string GenerateCarrierTrackingUrl(string? carrier, string? trackingNumber)
+    {
+        if (string.IsNullOrWhiteSpace(trackingNumber)) return string.Empty;
+        var c = carrier?.Trim().ToLowerInvariant() ?? "";
+        var cleanTracking = trackingNumber.Trim();
+        if (c.Contains("dhl"))
+            return $"https://www.dhl.com/en/express/tracking.html?AWB={Uri.EscapeDataString(cleanTracking)}";
+        if (c.Contains("fedex"))
+            return $"https://www.fedex.com/fedextrack/?trknbr={Uri.EscapeDataString(cleanTracking)}";
+        if (c.Contains("ups"))
+            return $"https://www.ups.com/track?tracknum={Uri.EscapeDataString(cleanTracking)}";
+        if (c.Contains("sri lanka post") || c.Contains("sl post") || c.Contains("post"))
+            return $"https://slpost.gov.lk/track-trace/?track_id={Uri.EscapeDataString(cleanTracking)}";
+        if (c.Contains("usps"))
+            return $"https://tools.usps.com/go/TrackConfirmAction?tLabels={Uri.EscapeDataString(cleanTracking)}";
+        return $"https://t.17track.net/en#nums={Uri.EscapeDataString(cleanTracking)}";
     }
 
     private static OrderResponseDto MapToDto(Order order)
@@ -618,9 +698,15 @@ public class OrderService : IOrderService
             PayHereOrderId = order.PayHereOrderId,
             TrackingNumber = order.TrackingNumber,
             ShippingCarrier = order.ShippingCarrier,
+            TrackingUrl = order.TrackingUrl,
             ShippingMethod = order.ShippingMethod,
             ShippingCost = order.ShippingCost,
             ShippedAt = order.ShippedAt,
+            EstimatedDeliveryDate = order.EstimatedDeliveryDate,
+            RefundStatus = order.RefundStatus ?? "None",
+            RefundReason = order.RefundReason,
+            RefundRequestedAt = order.RefundRequestedAt,
+            RefundProcessedAt = order.RefundProcessedAt,
             CreatedAt = order.CreatedAt,
             UpdatedAt = order.UpdatedAt,
             Items = order.Items.Select(i => new OrderItemResponseDto
@@ -1075,6 +1161,67 @@ public class OrderService : IOrderService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to send refund notification emails for order '{OrderId}'.", order.Id);
+        }
+    }
+
+    private async Task SendRefundRequestSellerNotificationAsync(Order order, string reason)
+    {
+        try
+        {
+            var items = order.Items;
+            if (items == null || !items.Any() || items.Any(i => i.Product == null || i.Product.Seller == null))
+            {
+                items = await _context.OrderItems
+                    .Where(i => i.OrderId == order.Id)
+                    .Include(i => i.Product)
+                        .ThenInclude(p => p!.Seller)
+                    .ToListAsync();
+            }
+
+            var sellerGroups = items
+                .Where(i => i.Product != null && i.Product.Seller != null && !string.IsNullOrWhiteSpace(i.Product.Seller.Email))
+                .GroupBy(i => i.Product!.Seller!);
+
+            foreach (var group in sellerGroups)
+            {
+                var seller = group.Key;
+                var sellerSubject = $"[Arboveya Action Required] Refund Requested for Order #{order.PayHereOrderId}";
+                var sellerHtml = $@"
+                    <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #92400e; border-radius: 12px; overflow: hidden;"">
+                        <div style=""padding: 24px; text-align: center;"">
+                            <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
+                            <p style=""color: #fef3c7; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Refund Request Notification</p>
+                        </div>
+                        <div style=""background: #ffffff; padding: 24px 28px;"">
+                            <h2 style=""color: #92400e; margin: 0 0 12px 0; font-size: 18px;"">Customer Requested a Refund</h2>
+                            <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
+                                Hello <strong>{System.Net.WebUtility.HtmlEncode(seller.FirstName)}</strong>,<br/>
+                                Customer <strong>{System.Net.WebUtility.HtmlEncode(order.CustomerName)}</strong> has opened a refund request for order <strong>#{order.PayHereOrderId}</strong>.
+                            </p>
+
+                            <div style=""background: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #78350f; line-height: 1.6;"">
+                                <div><strong>Order Reference:</strong> <span style=""font-family: monospace;"">{order.PayHereOrderId}</span></div>
+                                <div><strong>Order Total:</strong> <strong>${order.TotalAmount:F2}</strong></div>
+                                <div><strong>Customer Reason:</strong> {System.Net.WebUtility.HtmlEncode(reason)}</div>
+                                <div><strong>Status:</strong> <span style=""color: #b45309; font-weight: bold;"">Refund Requested (Action Pending)</span></div>
+                            </div>
+
+                            <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
+                                Please navigate to your <strong>Arboveya Seller Dashboard &gt; Manage Orders</strong> to review the details and process or resolve the refund.
+                            </p>
+                        </div>
+                        <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
+                            &copy; {DateTime.UtcNow.Year} Arboveya Herbal Botanical. All rights reserved.
+                        </div>
+                    </div>";
+
+                await _emailService.SendEmailAsync(seller.Email, sellerSubject, sellerHtml);
+                _logger.LogInformation("Sent refund request notice email for order '{OrderId}' to seller '{SellerEmail}'.", order.Id, seller.Email);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send refund request seller notifications for order '{OrderId}'.", order.Id);
         }
     }
 

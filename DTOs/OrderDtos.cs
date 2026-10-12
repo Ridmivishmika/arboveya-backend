@@ -61,6 +61,9 @@ public class UpdateOrderTrackingDto
     [MaxLength(100, ErrorMessage = "Shipping carrier cannot exceed 100 characters.")]
     public string? ShippingCarrier { get; set; }
 
+    [MaxLength(500, ErrorMessage = "Tracking URL cannot exceed 500 characters.")]
+    public string? TrackingUrl { get; set; }
+
     [MaxLength(50)]
     public string? OrderStatus { get; set; } = "Shipped";
 }
@@ -89,9 +92,15 @@ public class OrderResponseDto
     public string PayHereOrderId { get; set; } = string.Empty;
     public string? TrackingNumber { get; set; }
     public string? ShippingCarrier { get; set; }
+    public string? TrackingUrl { get; set; }
     public string? ShippingMethod { get; set; }
     public decimal ShippingCost { get; set; }
     public DateTime? ShippedAt { get; set; }
+    public DateTime? EstimatedDeliveryDate { get; set; }
+    public string RefundStatus { get; set; } = "None";
+    public string? RefundReason { get; set; }
+    public DateTime? RefundRequestedAt { get; set; }
+    public DateTime? RefundProcessedAt { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
     public string FundsStatus => (PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) || OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
@@ -101,6 +110,16 @@ public class OrderResponseDto
             : "On hold");
     public List<OrderItemResponseDto> Items { get; set; } = new();
     public PayHereCheckoutDetailsDto? PayHereDetails { get; set; }
+}
+
+public class CustomerRequestRefundDto
+{
+    [Required(ErrorMessage = "Refund reason is required.")]
+    [MaxLength(500, ErrorMessage = "Refund reason cannot exceed 500 characters.")]
+    public string Reason { get; set; } = string.Empty;
+
+    [MaxLength(1000)]
+    public string? Details { get; set; }
 }
 
 public class RefundOrderRequestDto
