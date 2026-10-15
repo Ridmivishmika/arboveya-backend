@@ -906,6 +906,13 @@ public class OrderService : IOrderService
                         catch (System.Text.Json.JsonException) { }
                     }
 
+                    if (isSandbox && refundContent.Contains("\"status\":-1") && refundContent.Contains("Unexpected error", StringComparison.OrdinalIgnoreCase))
+                    {
+                        throw new InvalidOperationException(
+                            "PayHere Sandbox Limitation: PayHere's Sandbox API cannot execute live card reversals and returned 'Unexpected error' (Sandbox balance is 0.00 or test payment_id not found in PayHere). " +
+                            "To complete this refund in Sandbox, select the 'Manual Portal Entry' option in the refund dialog and enter a reference (e.g. 'REF-SANDBOX-01').");
+                    }
+
                     throw new InvalidOperationException($"PayHere Refund API returned HTTP {refundResponse.StatusCode}: {refundContent}");
                 }
 
