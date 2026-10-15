@@ -197,3 +197,20 @@ public class ConfirmPaymentRequestDto
     public string? PaymentId { get; set; }
 }
 
+public class PayHereRetrievalDetailsDto
+{
+    public bool Found { get; set; }
+    public string? PaymentId { get; set; }
+    public string? OrderId { get; set; }
+    public string? Status { get; set; }
+    public decimal? Amount { get; set; }
+    public string? Currency { get; set; }
+    public string? Method { get; set; }
+    public string? CardCustomerName { get; set; }
+    public string? CardNumber { get; set; }
+    public string? Date { get; set; }
+    public string? Description { get; set; }
+    public string? Message { get; set; }
+}
+
+

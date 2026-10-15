@@ -328,6 +328,24 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
+    /// Check live payment details directly from PayHere via Retrieval API
+    /// </summary>
+    [HttpGet("{id:guid}/payhere-status")]
+    [AllowAnonymous]
+    [ProducesResponseType(typeof(PayHereRetrievalDetailsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public async Task<IActionResult> GetPayHereStatus(Guid id)
+    {
+        var result = await _orderService.RetrievePayHerePaymentAsync(id);
+        if (result == null)
+        {
+            return NotFound(new { message = $"Order with ID '{id}' was not found." });
+        }
+        return Ok(result);
+    }
+
+
+    /// <summary>
     /// Request refund as a customer (e.g. package not delivered within estimated delivery time or damaged / return)
     /// </summary>
     [HttpPost("{id:guid}/request-refund")]

@@ -23,5 +23,6 @@ public interface IOrderService
         bool autoRefundSandbox = true,
         string? paymentId = null);
     Task<OrderResponseDto?> RequestRefundAsync(Guid orderId, CustomerRequestRefundDto dto, Guid? currentUserId, string? userEmail);
+    Task<PayHereRetrievalDetailsDto?> RetrievePayHerePaymentAsync(Guid orderId);
 }
 
