@@ -1,5 +1,6 @@
 using System.Text;
 using Arboveya.Api.Data;
+using Arboveya.Api.Extensions;
 using Arboveya.Api.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
@@ -30,6 +31,39 @@ void LoadEnvFile(string path)
 LoadEnvFile(Path.Combine(Directory.GetCurrentDirectory(), ".env"));
 LoadEnvFile(Path.Combine(Directory.GetCurrentDirectory(), "..", ".env"));
 
+// Synchronize common ENV variable aliases
+void SyncEnvAlias(string fromKey, string toKey)
+{
+    var val = Environment.GetEnvironmentVariable(fromKey);
+    if (!string.IsNullOrWhiteSpace(val) && string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(toKey)))
+    {
+        Environment.SetEnvironmentVariable(toKey, val);
+    }
+}
+
+SyncEnvAlias("DATABASE_URL", "ConnectionStrings__DefaultConnection");
+SyncEnvAlias("JWT_KEY", "Jwt__Key");
+SyncEnvAlias("JWT_ISSUER", "Jwt__Issuer");
+SyncEnvAlias("JWT_AUDIENCE", "Jwt__Audience");
+SyncEnvAlias("JWT_EXPIRY_MINUTES", "Jwt__ExpiryMinutes");
+SyncEnvAlias("ADMIN_EMAIL", "Admin__Email");
+SyncEnvAlias("ADMIN_PASSWORD", "Admin__Password");
+SyncEnvAlias("PAYHERE_MERCHANT_ID", "PayHere__MerchantId");
+SyncEnvAlias("PAYHERE_MERCHANT_SECRET", "PayHere__MerchantSecret");
+SyncEnvAlias("PAYHERE_CURRENCY", "PayHere__Currency");
+SyncEnvAlias("PAYHERE_SANDBOX", "PayHere__IsSandbox");
+SyncEnvAlias("PAYHERE_RETURN_URL", "PayHere__ReturnUrl");
+SyncEnvAlias("PAYHERE_CANCEL_URL", "PayHere__CancelUrl");
+SyncEnvAlias("PAYHERE_NOTIFY_URL", "PayHere__NotifyUrl");
+SyncEnvAlias("PAYHERE_APP_ID", "PayHere__AppId");
+SyncEnvAlias("PAYHERE_APP_SECRET", "PayHere__AppSecret");
+SyncEnvAlias("SMTP_HOST", "Email__SmtpHost");
+SyncEnvAlias("SMTP_PORT", "Email__SmtpPort");
+SyncEnvAlias("SMTP_USER", "Email__SmtpUser");
+SyncEnvAlias("SMTP_PASS", "Email__SmtpPass");
+SyncEnvAlias("SMTP_FROM", "Email__FromEmail");
+SyncEnvAlias("SMTP_FROM_NAME", "Email__FromName");
+
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
 
@@ -38,11 +72,8 @@ builder.Services.AddControllers();
 builder.Services.AddHttpClient();
 
 // 2. Configure PostgreSQL DbContext
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
-    ?? builder.Configuration["ConnectionStrings:DefaultConnection"]
-    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found.");
+var connectionString = builder.Configuration.ResolveEnv("ConnectionStrings:DefaultConnection", "ConnectionStrings__DefaultConnection", "DATABASE_URL")
+    ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found. Please configure 'ConnectionStrings__DefaultConnection' or 'DATABASE_URL' in environment variables.");
 
 builder.Services.AddDbContext<AppDbContext>(options =>
 {
@@ -64,17 +95,11 @@ builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IContactMessageService, ContactMessageService>();
 
 // 4. Configure JWT Authentication
-var jwtKey = builder.Configuration["Jwt:Key"]
-    ?? Environment.GetEnvironmentVariable("Jwt__Key")
-    ?? Environment.GetEnvironmentVariable("JWT_KEY")
-    ?? "arboveya_super_secret_jwt_key_with_at_least_256_bits_length_12345!";
-var jwtIssuer = builder.Configuration["Jwt:Issuer"]
-    ?? Environment.GetEnvironmentVariable("Jwt__Issuer")
-    ?? Environment.GetEnvironmentVariable("JWT_ISSUER")
+var jwtKey = builder.Configuration.ResolveEnv("Jwt:Key", "Jwt__Key", "JWT_KEY")
+    ?? throw new InvalidOperationException("JWT Key not found. Please configure 'Jwt__Key' or 'JWT_KEY' in environment variables.");
+var jwtIssuer = builder.Configuration.ResolveEnv("Jwt:Issuer", "Jwt__Issuer", "JWT_ISSUER")
     ?? "ArboveyaApi";
-var jwtAudience = builder.Configuration["Jwt:Audience"]
-    ?? Environment.GetEnvironmentVariable("Jwt__Audience")
-    ?? Environment.GetEnvironmentVariable("JWT_AUDIENCE")
+var jwtAudience = builder.Configuration.ResolveEnv("Jwt:Audience", "Jwt__Audience", "JWT_AUDIENCE")
     ?? "ArboveyaClient";
 
 builder.Services.AddAuthentication(options =>
@@ -254,15 +279,14 @@ using (var scope = app.Services.CreateScope())
             DELETE FROM ""Users"" WHERE ""Email"" IN ('test_arboveya_check@example.com', 'test_cleanup_user@example.com');
         ");
 
-        // Ensure user-requested Admin account exists with configured credentials (from .env or appsettings)
-        var adminEmail = (builder.Configuration["Admin:Email"]
-            ?? Environment.GetEnvironmentVariable("ADMIN_EMAIL")
-            ?? "admin@arboveya.com").Trim();
-        var adminPassword = builder.Configuration["Admin:Password"]
-            ?? Environment.GetEnvironmentVariable("ADMIN_PASSWORD")
-            ?? "arboveya!";
+        // Ensure user-requested Admin account exists with configured credentials from environment variables
+        var adminEmail = builder.Configuration.ResolveEnv("Admin:Email", "ADMIN_EMAIL");
+        var adminPassword = builder.Configuration.ResolveEnv("Admin:Password", "ADMIN_PASSWORD");
 
-        var existingAdmin = dbContext.Users.FirstOrDefault(u => u.Email.ToLower() == adminEmail.ToLower());
+        if (!string.IsNullOrWhiteSpace(adminEmail) && !string.IsNullOrWhiteSpace(adminPassword))
+        {
+            adminEmail = adminEmail.Trim();
+            var existingAdmin = dbContext.Users.FirstOrDefault(u => u.Email.ToLower() == adminEmail.ToLower());
         if (existingAdmin == null)
         {
             var adminUser = new Arboveya.Api.Models.User
@@ -289,6 +313,7 @@ using (var scope = app.Services.CreateScope())
             existingAdmin.PasswordHash = BCrypt.Net.BCrypt.EnhancedHashPassword(adminPassword, workFactor: 12);
             dbContext.SaveChanges();
             logger.LogInformation("Admin user {Email} updated with latest credentials.", adminEmail);
+        }
         }
 
 

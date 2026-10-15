@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Mail;
+using Arboveya.Api.Extensions;
 
 namespace Arboveya.Api.Services;
 
@@ -16,19 +17,13 @@ public class EmailService : IEmailService
 
     public async Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, string? replyToEmail = null)
     {
-        var smtpHost = _configuration["Email:SmtpHost"]
-            ?? Environment.GetEnvironmentVariable("SMTP_HOST");
-        var smtpPortStr = _configuration["Email:SmtpPort"]
-            ?? Environment.GetEnvironmentVariable("SMTP_PORT");
-        var smtpUser = _configuration["Email:SmtpUser"]
-            ?? Environment.GetEnvironmentVariable("SMTP_USER");
-        var smtpPass = _configuration["Email:SmtpPass"]
-            ?? Environment.GetEnvironmentVariable("SMTP_PASS");
-        var fromEmail = _configuration["Email:FromEmail"]
-            ?? Environment.GetEnvironmentVariable("SMTP_FROM")
+        var smtpHost = _configuration.ResolveEnv("Email:SmtpHost", "SMTP_HOST", "Email__SmtpHost");
+        var smtpPortStr = _configuration.ResolveEnv("Email:SmtpPort", "SMTP_PORT", "Email__SmtpPort");
+        var smtpUser = _configuration.ResolveEnv("Email:SmtpUser", "SMTP_USER", "Email__SmtpUser");
+        var smtpPass = _configuration.ResolveEnv("Email:SmtpPass", "SMTP_PASS", "Email__SmtpPass");
+        var fromEmail = _configuration.ResolveEnv("Email:FromEmail", "SMTP_FROM", "Email__FromEmail")
             ?? (string.IsNullOrWhiteSpace(smtpUser) ? "care@arboveya.com" : smtpUser);
-        var fromName = _configuration["Email:FromName"]
-            ?? Environment.GetEnvironmentVariable("SMTP_FROM_NAME")
+        var fromName = _configuration.ResolveEnv("Email:FromName", "SMTP_FROM_NAME", "Email__FromName")
             ?? "Arboveya";
 
         int smtpPort = 587;

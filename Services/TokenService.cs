@@ -1,6 +1,7 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
+using Arboveya.Api.Extensions;
 using Arboveya.Api.Models;
 using Microsoft.IdentityModel.Tokens;
 
@@ -17,11 +18,12 @@ public class TokenService : ITokenService
 
     public (string Token, DateTime ExpiresAt) GenerateToken(User user)
     {
-        var secretKey = _configuration["Jwt:Key"] 
-            ?? "A_Default_Very_Long_Super_Secret_Key_For_Jwt_Security_1234567890!";
-        var issuer = _configuration["Jwt:Issuer"] ?? "ArboveyaApi";
-        var audience = _configuration["Jwt:Audience"] ?? "ArboveyaClient";
-        var expiryMinutes = int.TryParse(_configuration["Jwt:ExpiryMinutes"], out var minutes) ? minutes : 1440; // 24h default
+        var secretKey = _configuration.ResolveEnv("Jwt:Key", "Jwt__Key", "JWT_KEY")
+            ?? throw new InvalidOperationException("JWT Key not configured. Please set 'Jwt__Key' or 'JWT_KEY' in environment variables.");
+        var issuer = _configuration.ResolveEnv("Jwt:Issuer", "Jwt__Issuer", "JWT_ISSUER") ?? "ArboveyaApi";
+        var audience = _configuration.ResolveEnv("Jwt:Audience", "Jwt__Audience", "JWT_AUDIENCE") ?? "ArboveyaClient";
+        var expiryMinutesStr = _configuration.ResolveEnv("Jwt:ExpiryMinutes", "Jwt__ExpiryMinutes", "JWT_EXPIRY_MINUTES");
+        var expiryMinutes = int.TryParse(expiryMinutesStr, out var minutes) ? minutes : 1440; // 24h default
 
         var securityKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(secretKey));
         var credentials = new SigningCredentials(securityKey, SecurityAlgorithms.HmacSha256);

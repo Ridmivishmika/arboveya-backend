@@ -1,6 +1,7 @@
 using System.Web;
 using Arboveya.Api.Data;
 using Arboveya.Api.DTOs;
+using Arboveya.Api.Extensions;
 using Arboveya.Api.Models;
 using Microsoft.EntityFrameworkCore;
 
@@ -84,8 +85,7 @@ public class ContactMessageService : IContactMessageService
         // Send email notification to Admin's email
         try
         {
-            var adminEmail = (_configuration["Admin:Email"]
-                ?? Environment.GetEnvironmentVariable("ADMIN_EMAIL")
+            var adminEmail = (_configuration.ResolveEnv("Admin:Email", "ADMIN_EMAIL", "Admin__Email")
                 ?? "admin@arboveya.com").Trim();
 
             var safeMessageBody = HttpUtility.HtmlEncode(message.Message).Replace("\n", "<br/>");
