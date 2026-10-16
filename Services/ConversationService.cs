@@ -94,7 +94,7 @@ public class ConversationService : IConversationService
         return (await MapToDtoAsync(conversation.Id, buyerId))!;
     }
 
-    public async Task<ConversationDto> GetOrCreateOrderConversationAsync(Guid buyerId, Guid orderId, string? initialMessage = null)
+    public async Task<ConversationDto> GetOrCreateOrderConversationAsync(Guid callerId, Guid orderId, string? initialMessage = null)
     {
         var order = await _context.Orders
             .Include(o => o.Items)
@@ -107,42 +107,51 @@ public class ConversationService : IConversationService
             throw new ArgumentException($"Order with ID '{orderId}' was not found.");
         }
 
-        // Security check: Must ensure order belongs to authenticated user
-        if (order.UserId == null || order.UserId != buyerId)
+        // Security check: Must ensure order belongs to authenticated user OR caller is seller of an item in this order
+        bool isBuyer = order.UserId != null && order.UserId == callerId;
+        bool isSeller = order.Items.Any(i => i.Product != null && i.Product.SellerId == callerId);
+
+        if (!isBuyer && !isSeller)
         {
-            throw new UnauthorizedAccessException("You are not authorized to contact seller regarding this order.");
+            throw new UnauthorizedAccessException("You are not authorized to contact regarding this order.");
         }
 
-        // Reuse existing conversation if one already exists for this buyer and order
+        Guid actualBuyerId = order.UserId ?? callerId;
+        Guid? actualSellerId = order.Items.FirstOrDefault(i => i.Product?.SellerId != null)?.Product?.SellerId;
+        if (isSeller && actualSellerId == null)
+        {
+            actualSellerId = callerId;
+        }
+
+        // Reuse existing conversation if one already exists for this order
         var existing = await _context.Conversations
             .Include(c => c.Buyer)
             .Include(c => c.Seller)
             .Include(c => c.Order)
-            .FirstOrDefaultAsync(c => c.BuyerId == buyerId && c.OrderId == orderId);
+            .FirstOrDefaultAsync(c => c.OrderId == orderId && (c.BuyerId == actualBuyerId || c.SellerId == actualSellerId));
 
         if (existing != null)
         {
             if (!string.IsNullOrWhiteSpace(initialMessage))
             {
-                await SendMessageAsync(existing.Id, buyerId, "Customer", initialMessage.Trim());
+                string senderRole = isSeller ? "Seller" : "Customer";
+                await SendMessageAsync(existing.Id, callerId, senderRole, initialMessage.Trim());
             }
-            return (await MapToDtoAsync(existing.Id, buyerId))!;
+            return (await MapToDtoAsync(existing.Id, callerId))!;
         }
-
-        // Determine seller from order items if available
-        Guid? sellerId = order.Items.FirstOrDefault(i => i.Product?.SellerId != null)?.Product?.SellerId;
 
         var conversation = new Conversation
         {
             Id = Guid.NewGuid(),
-            BuyerId = buyerId,
-            SellerId = sellerId,
+            BuyerId = actualBuyerId,
+            SellerId = actualSellerId,
             OrderId = orderId,
             Type = "OrderSupport",
             Subject = $"Order #{order.PayHereOrderId ?? (order.Id.ToString()[..8].ToUpper())}",
             CreatedAt = DateTime.UtcNow,
             UpdatedAt = DateTime.UtcNow,
-            BuyerLastReadAt = DateTime.UtcNow
+            BuyerLastReadAt = isBuyer ? DateTime.UtcNow : null,
+            SellerLastReadAt = isSeller ? DateTime.UtcNow : null
         };
 
         try
@@ -152,9 +161,9 @@ public class ConversationService : IConversationService
         }
         catch (DbUpdateException ex)
         {
-            _logger.LogWarning(ex, "Concurrent conversation creation detected for buyer {BuyerId} and order {OrderId}", buyerId, orderId);
+            _logger.LogWarning(ex, "Concurrent conversation creation detected for caller {CallerId} and order {OrderId}", callerId, orderId);
             var reloaded = await _context.Conversations
-                .FirstOrDefaultAsync(c => c.BuyerId == buyerId && c.OrderId == orderId);
+                .FirstOrDefaultAsync(c => c.OrderId == orderId);
 
             if (reloaded != null)
             {
@@ -168,17 +177,18 @@ public class ConversationService : IConversationService
 
         if (!string.IsNullOrWhiteSpace(initialMessage))
         {
-            await SendMessageAsync(conversation.Id, buyerId, "Customer", initialMessage.Trim());
+            string senderRole = isSeller ? "Seller" : "Customer";
+            await SendMessageAsync(conversation.Id, callerId, senderRole, initialMessage.Trim());
         }
 
-        return (await MapToDtoAsync(conversation.Id, buyerId))!;
+        return (await MapToDtoAsync(conversation.Id, callerId))!;
     }
 
     public async Task<List<ConversationDto>> GetBuyerConversationsAsync(Guid buyerId)
     {
         var conversationIds = await _context.Conversations
             .AsNoTracking()
-            .Where(c => c.BuyerId == buyerId)
+            .Where(c => c.BuyerId == buyerId || c.SellerId == buyerId)
             .OrderByDescending(c => c.LastMessageAt ?? c.CreatedAt)
             .Select(c => c.Id)
             .ToListAsync();
@@ -196,7 +206,7 @@ public class ConversationService : IConversationService
     {
         var conversationIds = await _context.Conversations
             .AsNoTracking()
-            .Where(c => c.SellerId == sellerId)
+            .Where(c => c.SellerId == sellerId || c.BuyerId == sellerId)
             .OrderByDescending(c => c.LastMessageAt ?? c.CreatedAt)
             .Select(c => c.Id)
             .ToListAsync();

@@ -5,7 +5,7 @@ namespace Arboveya.Api.Services;
 public interface IConversationService
 {
     Task<ConversationDto> GetOrCreateProductConversationAsync(Guid buyerId, Guid productId, string? initialMessage = null);
-    Task<ConversationDto> GetOrCreateOrderConversationAsync(Guid buyerId, Guid orderId, string? initialMessage = null);
+    Task<ConversationDto> GetOrCreateOrderConversationAsync(Guid userId, Guid orderId, string? initialMessage = null);
     Task<List<ConversationDto>> GetBuyerConversationsAsync(Guid buyerId);
     Task<List<ConversationDto>> GetSellerConversationsAsync(Guid sellerId);
     Task<List<ConversationDto>> GetAllConversationsForAdminAsync(string? type = null, bool? unreadOnly = null, string? search = null);
