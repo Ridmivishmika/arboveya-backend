@@ -1126,7 +1126,10 @@ public class OrderService : IOrderService
             catch (InvalidOperationException ex)
             {
                 if (isSandbox && (ex.Message.Contains("Unexpected error", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("Sandbox Limitation", StringComparison.OrdinalIgnoreCase)))
+                                  ex.Message.Contains("Sandbox Limitation", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("Authentication error", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("OAuth", StringComparison.OrdinalIgnoreCase) ||
+                                  ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)))
                 {
                     _logger.LogWarning(ex, "[PayHere Sandbox Fallback] Auto-completing Sandbox refund gracefully for order '{OrderId}'.", order.PayHereOrderId);
                     return $"PH-SANDBOX-REF-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMddHHmmss")}";
