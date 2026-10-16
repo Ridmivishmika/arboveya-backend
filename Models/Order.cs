@@ -78,4 +78,5 @@ public class Order
     public DateTime? UpdatedAt { get; set; }
 
     public ICollection<OrderItem> Items { get; set; } = new List<OrderItem>();
+    public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
 }

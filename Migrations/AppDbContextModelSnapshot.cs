@@ -175,6 +175,116 @@ namespace Arboveya.Api.Migrations
                     b.ToTable("ContactMessages");
                 });
 
+            modelBuilder.Entity("Arboveya.Api.Models.Conversation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("BuyerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("BuyerLastReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<DateTime?>("LastMessageAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("OrderId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SellerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("SellerLastReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Subject")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BuyerId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("LastMessageAt");
+
+                    b.HasIndex("OrderId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SellerId");
+
+                    b.HasIndex("Type");
+
+                    b.HasIndex("BuyerId", "OrderId")
+                        .IsUnique()
+                        .HasFilter("\"OrderId\" IS NOT NULL");
+
+                    b.HasIndex("BuyerId", "ProductId")
+                        .IsUnique()
+                        .HasFilter("\"ProductId\" IS NOT NULL");
+
+                    b.ToTable("Conversations");
+                });
+
+            modelBuilder.Entity("Arboveya.Api.Models.Message", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ConversationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+                    b.Property<string>("MessageText")
+                        .IsRequired()
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("SenderId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ConversationId");
+
+                    b.HasIndex("CreatedAt");
+
+                    b.HasIndex("SenderId");
+
+                    b.ToTable("Messages");
+                });
+
             modelBuilder.Entity("Arboveya.Api.Models.Order", b =>
                 {
                     b.Property<Guid>("Id")
@@ -206,6 +316,10 @@ namespace Arboveya.Api.Migrations
 
                     b.Property<string>("PayHereOrderId")
                         .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("PaymentId")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -705,6 +819,57 @@ namespace Arboveya.Api.Migrations
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Arboveya.Api.Models.Conversation", b =>
+                {
+                    b.HasOne("Arboveya.Api.Models.User", "Buyer")
+                        .WithMany("BuyerConversations")
+                        .HasForeignKey("BuyerId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Arboveya.Api.Models.Order", "Order")
+                        .WithMany("Conversations")
+                        .HasForeignKey("OrderId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Arboveya.Api.Models.Product", "Product")
+                        .WithMany("Conversations")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.HasOne("Arboveya.Api.Models.User", "Seller")
+                        .WithMany("SellerConversations")
+                        .HasForeignKey("SellerId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("Buyer");
+
+                    b.Navigation("Order");
+
+                    b.Navigation("Product");
+
+                    b.Navigation("Seller");
+                });
+
+            modelBuilder.Entity("Arboveya.Api.Models.Message", b =>
+                {
+                    b.HasOne("Arboveya.Api.Models.Conversation", "Conversation")
+                        .WithMany("Messages")
+                        .HasForeignKey("ConversationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Arboveya.Api.Models.User", "Sender")
+                        .WithMany("SentMessages")
+                        .HasForeignKey("SenderId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Conversation");
+
+                    b.Navigation("Sender");
+                });
+
             modelBuilder.Entity("Arboveya.Api.Models.Order", b =>
                 {
                     b.HasOne("Arboveya.Api.Models.User", "User")
@@ -793,13 +958,22 @@ namespace Arboveya.Api.Migrations
                     b.Navigation("Products");
                 });
 
+            modelBuilder.Entity("Arboveya.Api.Models.Conversation", b =>
+                {
+                    b.Navigation("Messages");
+                });
+
             modelBuilder.Entity("Arboveya.Api.Models.Order", b =>
                 {
+                    b.Navigation("Conversations");
+
                     b.Navigation("Items");
                 });
 
             modelBuilder.Entity("Arboveya.Api.Models.Product", b =>
                 {
+                    b.Navigation("Conversations");
+
                     b.Navigation("OrderItems");
 
                     b.Navigation("Reviews");
@@ -811,13 +985,19 @@ namespace Arboveya.Api.Migrations
                 {
                     b.Navigation("BlogPosts");
 
+                    b.Navigation("BuyerConversations");
+
                     b.Navigation("ContactMessages");
 
                     b.Navigation("Orders");
 
                     b.Navigation("Reviews");
 
+                    b.Navigation("SellerConversations");
+
                     b.Navigation("SellerProducts");
+
+                    b.Navigation("SentMessages");
                 });
 
             modelBuilder.Entity("Arboveya.Api.Models.WellnessNeed", b =>

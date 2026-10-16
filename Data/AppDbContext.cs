@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<SiteSettings> SiteSettings => Set<SiteSettings>();
     public DbSet<ContactMessage> ContactMessages => Set<ContactMessage>();
     public DbSet<ProductVariant> ProductVariants => Set<ProductVariant>();
+    public DbSet<Conversation> Conversations => Set<Conversation>();
+    public DbSet<Message> Messages => Set<Message>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -252,6 +254,78 @@ public class AppDbContext : DbContext
                   .HasDefaultValue("Unread");
 
             entity.Property(c => c.CreatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
+        });
+
+        modelBuilder.Entity<Conversation>(entity =>
+        {
+            entity.HasIndex(c => c.BuyerId);
+            entity.HasIndex(c => c.SellerId);
+            entity.HasIndex(c => c.ProductId);
+            entity.HasIndex(c => c.OrderId);
+            entity.HasIndex(c => c.Type);
+            entity.HasIndex(c => c.LastMessageAt);
+            entity.HasIndex(c => c.CreatedAt);
+
+            // Filtered index to prevent duplicate conversations for the same buyer & product
+            entity.HasIndex(c => new { c.BuyerId, c.ProductId })
+                  .HasFilter(@"""ProductId"" IS NOT NULL")
+                  .IsUnique();
+
+            // Filtered index to prevent duplicate conversations for the same buyer & order
+            entity.HasIndex(c => new { c.BuyerId, c.OrderId })
+                  .HasFilter(@"""OrderId"" IS NOT NULL")
+                  .IsUnique();
+
+            entity.HasOne(c => c.Buyer)
+                  .WithMany(u => u.BuyerConversations)
+                  .HasForeignKey(c => c.BuyerId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(c => c.Seller)
+                  .WithMany(u => u.SellerConversations)
+                  .HasForeignKey(c => c.SellerId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(c => c.Product)
+                  .WithMany(p => p.Conversations)
+                  .HasForeignKey(c => c.ProductId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasOne(c => c.Order)
+                  .WithMany(o => o.Conversations)
+                  .HasForeignKey(c => c.OrderId)
+                  .OnDelete(DeleteBehavior.SetNull);
+
+            entity.HasMany(c => c.Messages)
+                  .WithOne(m => m.Conversation)
+                  .HasForeignKey(m => m.ConversationId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.Property(c => c.CreatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
+
+            entity.Property(c => c.UpdatedAt)
+                  .HasDefaultValueSql("CURRENT_TIMESTAMP");
+        });
+
+        modelBuilder.Entity<Message>(entity =>
+        {
+            entity.HasIndex(m => m.ConversationId);
+            entity.HasIndex(m => m.SenderId);
+            entity.HasIndex(m => m.CreatedAt);
+
+            entity.HasOne(m => m.Conversation)
+                  .WithMany(c => c.Messages)
+                  .HasForeignKey(m => m.ConversationId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(m => m.Sender)
+                  .WithMany(u => u.SentMessages)
+                  .HasForeignKey(m => m.SenderId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.Property(m => m.CreatedAt)
                   .HasDefaultValueSql("CURRENT_TIMESTAMP");
         });
     }

@@ -93,6 +93,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ISiteSettingsService, SiteSettingsService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IContactMessageService, ContactMessageService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddHostedService<PayHereBackgroundVerificationService>();
 
 // 4. Configure JWT Authentication

@@ -66,4 +66,7 @@ public class User
     public ICollection<Order> Orders { get; set; } = new List<Order>();
     public ICollection<ContactMessage> ContactMessages { get; set; } = new List<ContactMessage>();
     public ICollection<Product> SellerProducts { get; set; } = new List<Product>();
+    public ICollection<Conversation> BuyerConversations { get; set; } = new List<Conversation>();
+    public ICollection<Conversation> SellerConversations { get; set; } = new List<Conversation>();
+    public ICollection<Message> SentMessages { get; set; } = new List<Message>();
 }

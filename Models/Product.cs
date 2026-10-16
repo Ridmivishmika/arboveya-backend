@@ -93,4 +93,5 @@ public class Product
     public ICollection<ProductReview> Reviews { get; set; } = new List<ProductReview>();
     public ICollection<OrderItem> OrderItems { get; set; } = new List<OrderItem>();
     public ICollection<ProductVariant> Variants { get; set; } = new List<ProductVariant>();
+    public ICollection<Conversation> Conversations { get; set; } = new List<Conversation>();
 }

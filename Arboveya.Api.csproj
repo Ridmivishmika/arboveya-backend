@@ -19,4 +19,11 @@
     <PackageReference Include="System.IdentityModel.Tokens.Jwt" Version="8.22.0" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Compile Remove="Arboveya.Tests\**" />
+    <Content Remove="Arboveya.Tests\**" />
+    <EmbeddedResource Remove="Arboveya.Tests\**" />
+    <None Remove="Arboveya.Tests\**" />
+  </ItemGroup>
+
 </Project>
