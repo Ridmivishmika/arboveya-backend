@@ -93,6 +93,7 @@ builder.Services.AddScoped<IOrderService, OrderService>();
 builder.Services.AddScoped<ISiteSettingsService, SiteSettingsService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IContactMessageService, ContactMessageService>();
+builder.Services.AddHostedService<PayHereBackgroundVerificationService>();
 
 // 4. Configure JWT Authentication
 var jwtKey = builder.Configuration.ResolveEnv("Jwt:Key", "Jwt__Key", "JWT_KEY")
