@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using System.Globalization;
 using Arboveya.Api.Data;
 using Arboveya.Api.DTOs;
@@ -176,15 +177,18 @@ public class OrderService : IOrderService
                     throw new ArgumentException($"Product '{(string.IsNullOrWhiteSpace(itemDto.ProductName) ? itemDto.ProductId.ToString() : itemDto.ProductName)}' was not found in catalog.");
                 }
 
-                // Deduct inventory safely
-                if (product.StockQuantity >= itemDto.Quantity)
+                if (itemDto.Quantity <= 0)
                 {
-                    product.StockQuantity -= itemDto.Quantity;
+                    throw new InvalidOperationException($"Quantity for item '{(string.IsNullOrWhiteSpace(itemDto.ProductName) ? product.Name : itemDto.ProductName)}' must be greater than zero.");
                 }
-                else
+
+                // Reject purchase when inventory is insufficient
+                if (product.StockQuantity < itemDto.Quantity)
                 {
-                    product.StockQuantity = 0;
+                    throw new InvalidOperationException($"Insufficient stock for '{product.Name}'. Only {product.StockQuantity} unit(s) available.");
                 }
+
+                product.StockQuantity -= itemDto.Quantity;
                 product.UpdatedAt = DateTime.UtcNow;
 
                 var unitPrice = itemDto.UnitPrice.HasValue && itemDto.UnitPrice.Value > 0 
@@ -197,7 +201,7 @@ public class OrderService : IOrderService
                     OrderId = orderId,
                     ProductId = product.Id,
                     Product = product,
-                    Quantity = itemDto.Quantity > 0 ? itemDto.Quantity : 1,
+                    Quantity = itemDto.Quantity,
                     UnitPrice = unitPrice
                 };
 
@@ -209,6 +213,11 @@ public class OrderService : IOrderService
             var shippingMethod = string.IsNullOrWhiteSpace(dto.ShippingMethod) ? "Standard Shipping" : dto.ShippingMethod.Trim();
             var finalTotal = totalAmount + shippingCost;
 
+            if (finalTotal <= 0)
+            {
+                throw new InvalidOperationException("Invalid order total.");
+            }
+
             var order = new Order
             {
                 Id = orderId,
@@ -218,9 +227,9 @@ public class OrderService : IOrderService
                 ShippingAddress = shippingAddress,
                 ShippingMethod = shippingMethod,
                 ShippingCost = shippingCost,
-                TotalAmount = finalTotal > 0 ? finalTotal : 49.98m,
+                TotalAmount = finalTotal,
                 PaymentStatus = "Pending",
-                OrderStatus = "Processing",
+                OrderStatus = "Pending",
                 PayHereOrderId = payHereOrderId,
                 EstimatedDeliveryDate = DateTime.UtcNow.AddDays(7 + (shippingMethod != null && (shippingMethod.Contains("Express", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Priority", StringComparison.OrdinalIgnoreCase)) ? 2 : (shippingMethod != null && (shippingMethod.Contains("Free", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Economy", StringComparison.OrdinalIgnoreCase)) ? 7 : 5)) + 14),
                 CreatedAt = DateTime.UtcNow,
@@ -473,11 +482,30 @@ public class OrderService : IOrderService
         if (!string.IsNullOrWhiteSpace(dto.PaymentStatus))
         {
             var newPaymentStatus = dto.PaymentStatus.Trim();
-            if (!order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) && 
-                newPaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+            if (!string.Equals(order.PaymentStatus, newPaymentStatus, StringComparison.OrdinalIgnoreCase))
             {
-                // If not already cancelled, cancel and restore stock
-                if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+                // Protect gateway-confirmed financial states from arbitrary manual edits
+                if (order.PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase) ||
+                    order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) ||
+                    order.PaymentStatus.Equals("PartiallyRefunded", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"Cannot manually overwrite gateway-confirmed payment status '{order.PaymentStatus}'. " +
+                        "Financial transaction statuses are managed through PayHere gateway verification and refund workflows.");
+                }
+
+                if (newPaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Payment status cannot be manually marked as 'Paid'. Payment confirmation requires PayHere gateway verification.");
+                }
+
+                if (newPaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException("Payment status cannot be manually marked as 'Refunded'. Please use the Refund Order workflow to process refunds.");
+                }
+
+                if (newPaymentStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase) && 
+                    !order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
                 {
                     foreach (var item in order.Items)
                     {
@@ -489,8 +517,9 @@ public class OrderService : IOrderService
                     }
                     order.OrderStatus = "Cancelled";
                 }
+
+                order.PaymentStatus = newPaymentStatus;
             }
-            order.PaymentStatus = newPaymentStatus;
         }
 
         order.UpdatedAt = DateTime.UtcNow;
@@ -636,7 +665,9 @@ public class OrderService : IOrderService
         string? payHereRefundId = null, 
         string? notes = null,
         bool autoRefundSandbox = true,
-        string? paymentId = null)
+        string? paymentId = null,
+        Guid? currentUserId = null,
+        bool isAdmin = false)
     {
         var order = await _context.Orders
             .Include(o => o.Items)
@@ -646,18 +677,85 @@ public class OrderService : IOrderService
 
         if (order == null) return null;
 
-        if (order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
+        // 1. Transaction Ownership Verification (Issue 2 & Fix D)
+        if (!isAdmin)
+        {
+            if (!currentUserId.HasValue || !order.Items.Any(i => i.Product != null && i.Product.SellerId == currentUserId.Value))
+            {
+                throw new UnauthorizedAccessException("You are not authorized to process refunds for this order.");
+            }
+        }
+
+        // 2. Existing refund verification (Fix D)
+        if (order.PaymentStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase) ||
+            order.RefundStatus.Equals("Refunded", StringComparison.OrdinalIgnoreCase))
         {
             throw new InvalidOperationException($"Order '{order.PayHereOrderId}' is already marked as Refunded.");
         }
 
+        // 3. Amount validation (Issue 4 & Fix D)
+        if (refundAmount.HasValue)
+        {
+            if (refundAmount.Value <= 0)
+            {
+                throw new InvalidOperationException("Refund amount must be greater than zero.");
+            }
+            if (refundAmount.Value > order.TotalAmount)
+            {
+                throw new InvalidOperationException($"Refund amount (${refundAmount.Value:F2}) cannot exceed the total order amount of ${order.TotalAmount:F2}.");
+            }
+        }
+
         var amountToRefund = (refundAmount.HasValue && refundAmount.Value > 0) ? refundAmount.Value : order.TotalAmount;
+        var isPartialRefund = amountToRefund < order.TotalAmount;
         var effectivePaymentId = !string.IsNullOrWhiteSpace(paymentId) ? paymentId.Trim() : order.PaymentId;
 
-        // If automated PayHere refund requested and no external refund ID provided yet
-        if (autoRefundSandbox && string.IsNullOrWhiteSpace(payHereRefundId))
+        // 4. Duplicate request check if refund already pending on order
+        if (order.RefundStatus.Equals("RefundPending", StringComparison.OrdinalIgnoreCase) ||
+            order.RefundStatus.Equals("RefundProcessing", StringComparison.OrdinalIgnoreCase))
         {
-            payHereRefundId = await ExecutePayHereSandboxRefundAsync(order, amountToRefund, reason ?? "Automated refund processed via PayHere", effectivePaymentId);
+            var verified = await RetrievePayHerePaymentAsync(order.Id, currentUserId, isAdmin);
+            if (verified != null && string.Equals(verified.Status, "REFUNDED", StringComparison.OrdinalIgnoreCase))
+            {
+                return MapToDto(order);
+            }
+            throw new InvalidOperationException(
+                "A refund request is currently pending or processing with PayHere for this order. " +
+                "Please check PayHere payment status using 'Check Live PayHere Status' before submitting another refund.");
+        }
+
+        // 5. Payment status validation
+        if (!order.PaymentStatus.Equals("Paid", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException($"Refund can only be processed on orders with confirmed payment (current status: '{order.PaymentStatus}').");
+        }
+
+        // 6. Manual refund authorization check (Issue 6)
+        var isManualRefund = !autoRefundSandbox || !string.IsNullOrWhiteSpace(payHereRefundId);
+        if (isManualRefund)
+        {
+            if (!isAdmin)
+            {
+                throw new UnauthorizedAccessException("Only administrators are permitted to record manual/external refunds.");
+            }
+            if (string.IsNullOrWhiteSpace(payHereRefundId) && string.IsNullOrWhiteSpace(notes))
+            {
+                throw new InvalidOperationException("Manual refund recording requires a valid PayHere Refund Reference ID or external confirmation note as evidence.");
+            }
+        }
+
+        // 7. Automated PayHere Refund processing
+        string? executionResultStatus = null;
+        if (!isManualRefund)
+        {
+            var refundResult = await ExecutePayHereRefundAsync(order, amountToRefund, isPartialRefund, reason ?? "Automated refund processed via PayHere", effectivePaymentId);
+            payHereRefundId = refundResult.RefundReference;
+            executionResultStatus = refundResult.PayHereStatus;
+            if (!string.IsNullOrWhiteSpace(refundResult.DiscoveredPaymentId))
+            {
+                effectivePaymentId = refundResult.DiscoveredPaymentId;
+                order.PaymentId = effectivePaymentId;
+            }
         }
 
         // Persist paymentId if provided/resolved so future queries track PayHere payment identifier
@@ -666,32 +764,14 @@ public class OrderService : IOrderService
             order.PaymentId = effectivePaymentId;
         }
 
-        // Restore inventory for items if order wasn't previously cancelled
-        if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
-        {
-            foreach (var item in order.Items)
-            {
-                if (item.Product != null)
-                {
-                    item.Product.StockQuantity += item.Quantity;
-                    item.Product.UpdatedAt = DateTime.UtcNow;
-                }
-            }
-        }
-
-        order.PaymentStatus = "Refunded";
-        order.OrderStatus = "Cancelled";
-        order.RefundStatus = "Refunded";
-        order.RefundProcessedAt = DateTime.UtcNow;
-
         var parts = new List<string>();
-        if (autoRefundSandbox)
+        if (!isManualRefund)
         {
-            parts.Add("PayHere Auto-Refund");
+            parts.Add(isPartialRefund ? $"PayHere Partial Refund (${amountToRefund:F2})" : "PayHere Auto-Refund");
         }
         else
         {
-            parts.Add("Manual refund via PayHere");
+            parts.Add(isPartialRefund ? $"Manual Partial Refund (${amountToRefund:F2})" : "Manual refund via PayHere");
         }
 
         if (!string.IsNullOrWhiteSpace(reason))
@@ -711,13 +791,54 @@ public class OrderService : IOrderService
 
         order.RefundReason = string.Join(" | ", parts);
         order.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Order '{OrderId}' successfully refunded (${RefundAmount:F2}) via PayHere (Auto: {AutoSandbox}). Reason: '{Reason}'.",
-            order.Id, amountToRefund, autoRefundSandbox, order.RefundReason);
+        // 8. Update database according to PayHere status (Fix B, Issue 3 & Issue 4)
+        if (isManualRefund || string.Equals(executionResultStatus, "REFUNDED", StringComparison.OrdinalIgnoreCase))
+        {
+            if (isPartialRefund)
+            {
+                order.PaymentStatus = "PartiallyRefunded";
+                order.RefundStatus = "PartiallyRefunded";
+            }
+            else
+            {
+                order.PaymentStatus = "Refunded";
+                order.OrderStatus = "Cancelled";
+                order.RefundStatus = "Refunded";
 
-        // Send refund notification emails to buyer and seller
-        await SendOrderRefundNotificationsAsync(order, amountToRefund, order.RefundReason, payHereRefundId);
+                // Restore inventory for items if order wasn't previously cancelled
+                foreach (var item in order.Items)
+                {
+                    if (item.Product != null)
+                    {
+                        item.Product.StockQuantity += item.Quantity;
+                        item.Product.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+            }
+
+            order.RefundProcessedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Order '{OrderId}' successfully refunded (${RefundAmount:F2}) via PayHere (Auto: {AutoSandbox}). Status: {RefundStatus}. Reason: '{Reason}'.",
+                order.Id, amountToRefund, !isManualRefund, order.RefundStatus, order.RefundReason);
+
+            // Send refund notification emails to buyer and seller
+            await SendOrderRefundNotificationsAsync(order, amountToRefund, order.RefundReason, payHereRefundId);
+        }
+        else if (string.Equals(executionResultStatus, "REFUND PROCESSING", StringComparison.OrdinalIgnoreCase))
+        {
+            order.RefundStatus = "RefundProcessing";
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Order '{OrderId}' refund is processing on PayHere. Status set to RefundProcessing.", order.Id);
+        }
+        else
+        {
+            // Status: 1 or REFUND REQUESTED: Pending gateway settlement
+            order.RefundStatus = "RefundPending";
+            await _context.SaveChangesAsync();
+            _logger.LogInformation("Order '{OrderId}' refund request accepted by PayHere. Status set to RefundPending.", order.Id);
+        }
 
         return MapToDto(order);
     }
@@ -811,17 +932,128 @@ public class OrderService : IOrderService
         }
     }
 
+    private sealed class PayHereRefundExecutionResult
+    {
+        public string RefundReference { get; set; } = string.Empty;
+        public string PayHereStatus { get; set; } = "ACCEPTED";
+        public string? DiscoveredPaymentId { get; set; }
+    }
+
+    /// <summary>
+    /// Matches the actual payment transaction from PayHere Retrieval API results.
+    /// Evaluates stored payment_id, order_id reference, currency, amount, and successful status.
+    /// </summary>
+    private static JsonElement? FindMatchingPayment(
+        JsonElement.ArrayEnumerator payments, 
+        Order order, 
+        string? expectedPaymentId)
+    {
+        JsonElement? bestMatch = null;
+        int bestScore = -1;
+
+        foreach (var p in payments)
+        {
+            int score = 0;
+
+            // 1. payment_id match
+            string? pid = null;
+            if (p.TryGetProperty("payment_id", out var pidElem))
+            {
+                pid = pidElem.ValueKind == JsonValueKind.Number
+                    ? pidElem.GetInt64().ToString()
+                    : pidElem.GetString()?.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(expectedPaymentId) && 
+                string.Equals(pid, expectedPaymentId.Trim(), StringComparison.OrdinalIgnoreCase))
+            {
+                score += 100;
+            }
+
+            // 2. order_id match
+            if (p.TryGetProperty("order_id", out var oidElem))
+            {
+                var oid = oidElem.GetString()?.Trim();
+                if (string.Equals(oid, order.PayHereOrderId, StringComparison.OrdinalIgnoreCase))
+                {
+                    score += 50;
+                }
+            }
+
+            // 3. status match (prioritize successful and refundable states)
+            if (p.TryGetProperty("status", out var statElem))
+            {
+                var stat = statElem.GetString()?.Trim().ToUpperInvariant() ?? "";
+                if (stat == "RECEIVED" || stat == "SUCCESS" || stat == "COMPLETED" || stat == "PAID")
+                {
+                    score += 30;
+                }
+                else if (stat == "REFUNDED" || stat == "REFUND PROCESSING" || stat == "REFUND REQUESTED")
+                {
+                    score += 25;
+                }
+                else if (stat == "PENDING" || stat == "0")
+                {
+                    score += 5;
+                }
+            }
+
+            // 4. amount match
+            if (p.TryGetProperty("amount", out var amtElem))
+            {
+                decimal amt = 0;
+                if (amtElem.ValueKind == JsonValueKind.Number && amtElem.TryGetDecimal(out var nAmt))
+                {
+                    amt = nAmt;
+                }
+                else if (decimal.TryParse(amtElem.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var pAmt))
+                {
+                    amt = pAmt;
+                }
+
+                if (Math.Abs(amt - order.TotalAmount) < 0.05m)
+                {
+                    score += 20;
+                }
+            }
+
+            // 5. currency match
+            if (p.TryGetProperty("currency", out var curElem))
+            {
+                var cur = curElem.GetString()?.Trim().ToUpperInvariant();
+                if (cur == "USD" || cur == "LKR")
+                {
+                    score += 10;
+                }
+            }
+
+            // Must score at least 50 (must match order_id or payment_id)
+            if (score > bestScore && score >= 50)
+            {
+                bestScore = score;
+                bestMatch = p;
+            }
+        }
+
+        return bestMatch;
+    }
+
     /// <summary>
     /// Executes automated PayHere Refund.
     /// Strictly adheres to official PayHere Retrieval & Refund API specifications:
     /// 1. Authenticates via OAuth 2.0 Client Credentials (/merchant/v1/oauth/token)
-    /// 2. If payment_id is missing, consumes PayHere Retrieval API (/merchant/v1/payment/search?order_id=...)
-    ///    to automatically discover payment_id, verify status, and inspect payment method (card vs non-card)
-    /// 3. If already marked REFUNDED or in progress on PayHere, completes smoothly without duplicate errors
-    /// 4. Executes PayHere Refund API (POST /merchant/v1/payment/refund) with payment_id and description
-    /// 5. Parses status codes (1: success, 0: error initiating, -1: refund failed, -2: auth error)
+    /// 2. If payment_id is missing or unverified, consumes PayHere Retrieval API (/merchant/v1/payment/search?order_id=...)
+    ///    to validate real PayHere payment_id, currency, amount, and card payment method
+    /// 3. Submits refund request (POST /merchant/v1/payment/refund) with real payment_id and description (and amount if partial)
+    /// 4. Checks PayHere response status code strictly (status: 1 means refund request accepted)
+    /// 5. Confirms final payment status via Retrieval API
     /// </summary>
-    private async Task<string> ExecutePayHereSandboxRefundAsync(Order order, decimal amount, string reason, string? paymentId)
+    private async Task<PayHereRefundExecutionResult> ExecutePayHereRefundAsync(
+        Order order, 
+        decimal amount, 
+        bool isPartialRefund, 
+        string reason, 
+        string? paymentId)
     {
         var isSandboxStr = _configuration.ResolveEnv("PayHere:IsSandbox", "PAYHERE_SANDBOX", "PayHere__IsSandbox") ?? "true";
         var isSandbox = isSandboxStr.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -829,342 +1061,311 @@ public class OrderService : IOrderService
         var appSecret = _configuration.ResolveEnv("PayHere:AppSecret", "PAYHERE_APP_SECRET", "PayHere__AppSecret");
         var baseUrl = isSandbox ? "https://sandbox.payhere.lk" : "https://www.payhere.lk";
 
-        if (!string.IsNullOrWhiteSpace(appId) && !string.IsNullOrWhiteSpace(appSecret))
-        {
-            try
-            {
-                var client = _httpClientFactory != null ? _httpClientFactory.CreateClient() : new HttpClient();
-
-                // 1. Retrieve or refresh OAuth Access Token
-                var accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret);
-
-                // 2. If paymentId is missing, consume PayHere Retrieval API to automatically discover it
-                if (string.IsNullOrWhiteSpace(paymentId))
-                {
-                    _logger.LogInformation("[PayHere Retrieval API] Querying PayHere payment search for order '{OrderId}' ({PayHereOrderId})...",
-                        order.Id, order.PayHereOrderId);
-
-                    var searchUrl = $"{baseUrl}/merchant/v1/payment/search?order_id={Uri.EscapeDataString(order.PayHereOrderId)}";
-                    var searchRequest = new HttpRequestMessage(HttpMethod.Get, searchUrl);
-                    searchRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-
-                    var searchResponse = await client.SendAsync(searchRequest);
-                    var searchContent = await searchResponse.Content.ReadAsStringAsync();
-
-                    // If token expired during search, refresh token and retry
-                    if (searchResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                        searchContent.Contains("invalid_token", StringComparison.OrdinalIgnoreCase) ||
-                        searchContent.Contains("token expired", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _logger.LogWarning("[PayHere Retrieval API] Token expired during payment search. Refreshing OAuth Access Token and retrying...");
-                        _cachedAccessToken = null;
-                        _tokenExpiresAt = DateTime.MinValue;
-
-                        accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret, forceRefresh: true);
-                        searchRequest = new HttpRequestMessage(HttpMethod.Get, searchUrl);
-                        searchRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-                        searchResponse = await client.SendAsync(searchRequest);
-                        searchContent = await searchResponse.Content.ReadAsStringAsync();
-                    }
-
-                    _logger.LogInformation("[PayHere Retrieval API Response] Status: {StatusCode}, Body: {Body}",
-                        searchResponse.StatusCode, searchContent);
-
-                    if (searchResponse.IsSuccessStatusCode)
-                    {
-                        using var searchDoc = System.Text.Json.JsonDocument.Parse(searchContent);
-                        var sRoot = searchDoc.RootElement;
-                        var sCode = sRoot.TryGetProperty("status", out var sc) ? sc.GetInt32() : -1;
-
-                        if (sCode == 1 && sRoot.TryGetProperty("data", out var dataArr) &&
-                            dataArr.ValueKind == System.Text.Json.JsonValueKind.Array && dataArr.GetArrayLength() > 0)
-                        {
-                            var firstPayment = dataArr[0];
-
-                            // Extract payment_id (can be numeric or string in PayHere JSON)
-                            if (firstPayment.TryGetProperty("payment_id", out var pidElem))
-                            {
-                                paymentId = pidElem.ValueKind == System.Text.Json.JsonValueKind.Number
-                                    ? pidElem.GetInt64().ToString()
-                                    : pidElem.GetString()?.Trim();
-                            }
-
-                            // Extract transaction status
-                            var payStatus = firstPayment.TryGetProperty("status", out var stElem) ? stElem.GetString() : null;
-
-                            // Check payment method: PayHere only supports card payment methods (Visa, Mastercard, Amex)
-                            if (firstPayment.TryGetProperty("payment_method", out var pmElem) &&
-                                pmElem.TryGetProperty("method", out var methElem))
-                            {
-                                var method = methElem.GetString() ?? "";
-                                if (method.Contains("FRIMI", StringComparison.OrdinalIgnoreCase) ||
-                                    method.Contains("GENIE", StringComparison.OrdinalIgnoreCase) ||
-                                    method.Contains("EZCASH", StringComparison.OrdinalIgnoreCase) ||
-                                    method.Contains("MCASH", StringComparison.OrdinalIgnoreCase) ||
-                                    method.Contains("VISHWA", StringComparison.OrdinalIgnoreCase))
-                                {
-                                    throw new InvalidOperationException(
-                                        $"PayHere automated refund only supports card payments (Visa, Mastercard, American Express). " +
-                                        $"This payment was made via '{method}'. Please refund the customer manually via bank transfer.");
-                                }
-                            }
-
-                            // If payment has ALREADY been refunded on PayHere:
-                            if (string.Equals(payStatus, "REFUNDED", StringComparison.OrdinalIgnoreCase))
-                            {
-                                _logger.LogInformation("[PayHere Retrieval API] Payment '{PaymentId}' for order '{OrderId}' is already marked 'REFUNDED' on PayHere.",
-                                    paymentId, order.PayHereOrderId);
-                                if (!string.IsNullOrWhiteSpace(paymentId))
-                                {
-                                    order.PaymentId = paymentId;
-                                }
-                                return $"PH-ALREADY-REFUNDED-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMdd")}";
-                            }
-
-                            // If refund is currently requested or processing on PayHere:
-                            if (string.Equals(payStatus, "REFUND REQUESTED", StringComparison.OrdinalIgnoreCase) ||
-                                string.Equals(payStatus, "REFUND PROCESSING", StringComparison.OrdinalIgnoreCase))
-                            {
-                                _logger.LogInformation("[PayHere Retrieval API] Order '{OrderId}' refund is already in status '{Status}' on PayHere.",
-                                    order.PayHereOrderId, payStatus);
-                                if (!string.IsNullOrWhiteSpace(paymentId))
-                                {
-                                    order.PaymentId = paymentId;
-                                }
-                                return $"PH-IN-PROGRESS-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMdd")}";
-                            }
-                        }
-                        else if (sCode == -1)
-                        {
-                            var sMsg = sRoot.TryGetProperty("msg", out var sm) ? sm.GetString() : "No payments found";
-                            throw new InvalidOperationException(
-                                $"PayHere Retrieval API returned '{sMsg}' for Order Reference '{order.PayHereOrderId}' on PayHere {(isSandbox ? "Sandbox" : "Live")}. " +
-                                "Please verify that the payment was completed in PayHere. If this is a sandbox test order or was settled outside PayHere, select 'Manual Portal Entry' and enter a reference (e.g. 'REF-SANDBOX-01').");
-                        }
-                        else if (sCode == 0)
-                        {
-                            throw new InvalidOperationException(
-                                $"PayHere payment for order '{order.PayHereOrderId}' is currently Pending (status: 0). Refunds can only be processed on confirmed successful payments.");
-                        }
-                        else if (sCode == -2)
-                        {
-                            throw new InvalidOperationException(
-                                $"PayHere payment for order '{order.PayHereOrderId}' was declined or failed authentication (status: -2). No successful payment available to refund.");
-                        }
-                    }
-                    else if (searchResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                    {
-                        throw new InvalidOperationException(
-                            "PayHere API Access Denied / Unauthorized: Please check your PayHere Settings > API Keys. " +
-                            "Ensure 'Automated Charging API' permission is checked, and for Sandbox, set Allowed Domains to '*'.");
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(paymentId))
-                {
-                    throw new InvalidOperationException(
-                        $"Could not resolve PayHere Payment ID (payment_id) for order '{order.PayHereOrderId}'. " +
-                        "PayHere Retrieval API found no matching record. You can issue the refund directly in your PayHere Dashboard (https://sandbox.payhere.lk or https://www.payhere.lk > Payments > Request Refund) and enter the reference using Manual Portal Entry.");
-                }
-
-                // Persist the discovered/confirmed paymentId to the order
-                order.PaymentId = paymentId.Trim();
-
-                // 3. Build and execute Refund API call (POST /merchant/v1/payment/refund)
-                // PayHere Refund API documentation specifies payment_id and description for full refunds.
-                var refundUrl = $"{baseUrl}/merchant/v1/payment/refund";
-                var refundPayload = new Dictionary<string, object>
-                {
-                    { "payment_id", paymentId.Trim() },
-                    { "description", string.IsNullOrWhiteSpace(reason) ? $"Refund for order {order.PayHereOrderId}" : reason.Trim() }
-                };
-
-                var refundRequest = new HttpRequestMessage(HttpMethod.Post, refundUrl);
-                refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-                refundRequest.Content = new StringContent(
-                    System.Text.Json.JsonSerializer.Serialize(refundPayload),
-                    Encoding.UTF8,
-                    "application/json");
-
-                var refundResponse = await client.SendAsync(refundRequest);
-                var refundContent = await refundResponse.Content.ReadAsStringAsync();
-
-                // If token expired, clear cache and retry once
-                if (refundResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                    refundContent.Contains("invalid_token", StringComparison.OrdinalIgnoreCase) ||
-                    refundContent.Contains("token expired", StringComparison.OrdinalIgnoreCase))
-                {
-                    _logger.LogWarning("[PayHere API] Token expired or unauthorized. Refreshing OAuth Access Token and retrying refund...");
-                    _cachedAccessToken = null;
-                    _tokenExpiresAt = DateTime.MinValue;
-
-                    accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret, forceRefresh: true);
-                    refundRequest = new HttpRequestMessage(HttpMethod.Post, refundUrl);
-                    refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
-                    refundRequest.Content = new StringContent(
-                        System.Text.Json.JsonSerializer.Serialize(refundPayload),
-                        Encoding.UTF8,
-                        "application/json");
-
-                    refundResponse = await client.SendAsync(refundRequest);
-                    refundContent = await refundResponse.Content.ReadAsStringAsync();
-                }
-
-                _logger.LogInformation("[PayHere Refund API Response] Status: {StatusCode}, Body: {Body}", refundResponse.StatusCode, refundContent);
-
-                if (!refundResponse.IsSuccessStatusCode)
-                {
-                    if (refundResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
-                    {
-                        try
-                        {
-                            using var unauthDoc = System.Text.Json.JsonDocument.Parse(refundContent);
-                            if (unauthDoc.RootElement.TryGetProperty("msg", out var unauthMsg) && 
-                                unauthMsg.GetString()?.Contains("Access denied for the domain", StringComparison.OrdinalIgnoreCase) == true)
-                            {
-                                throw new InvalidOperationException(
-                                    "PayHere Access Denied for Domain: For Sandbox testing, please set the allowed domain of your API Key to '*' in PayHere Dashboard (Settings > API Keys). In Live, contact support@payhere.lk to whitelist your server IP/domain.");
-                            }
-                            if (unauthDoc.RootElement.TryGetProperty("error_description", out var unauthDesc))
-                            {
-                                throw new InvalidOperationException($"PayHere Unauthorized: {unauthDesc.GetString()}");
-                            }
-                        }
-                        catch (System.Text.Json.JsonException) { }
-                    }
-
-                    if (isSandbox && refundContent.Contains("\"status\":-1") && refundContent.Contains("Unexpected error", StringComparison.OrdinalIgnoreCase))
-                    {
-                        _logger.LogWarning("[PayHere Sandbox Simulation] PayHere Sandbox returned 'Unexpected error' (test balance / reversal limitation). Auto-completing sandbox refund for order '{OrderId}'.", order.PayHereOrderId);
-                        return $"PH-SANDBOX-REF-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMddHHmmss")}";
-                    }
-
-                    throw new InvalidOperationException($"PayHere Refund API returned HTTP {refundResponse.StatusCode}: {refundContent}");
-                }
-
-                using var refundDoc = System.Text.Json.JsonDocument.Parse(refundContent);
-                var root = refundDoc.RootElement;
-
-                // Check for OAuth error in payload
-                if (root.TryGetProperty("error", out var apiErrElem))
-                {
-                    var desc = root.TryGetProperty("error_description", out var descProp) ? descProp.GetString() : apiErrElem.GetString();
-                    throw new InvalidOperationException($"PayHere API Error: {desc}");
-                }
-
-                // Check PayHere Payment Status Codes:
-                //  1 - success
-                //  0 - error initiating the refund
-                // -1 - refund failed. check msg for details
-                // -2 - authentication error
-                if (root.TryGetProperty("status", out var statusProp))
-                {
-                    var statusCode = statusProp.GetInt32();
-                    var msg = root.TryGetProperty("msg", out var msgProp) ? msgProp.GetString() : "PayHere rejected the refund.";
-
-                    if (statusCode == -2)
-                    {
-                        throw new InvalidOperationException(
-                            $"PayHere Authentication Error: {msg}. Please ensure your API Key has the 'Automated Charging API' permission enabled and that your domain whitelist is configured (use '*' for Sandbox) in PayHere Settings > API Keys.");
-                    }
-
-                    if (statusCode == -1)
-                    {
-                        if (msg != null && msg.Contains("Access denied for the domain", StringComparison.OrdinalIgnoreCase))
-                        {
-                            throw new InvalidOperationException(
-                                $"PayHere Access Denied for Domain: {msg}. For Sandbox testing, set the allowed domain of your API Key to '*' in PayHere Settings > API Keys. In Live, contact support@payhere.lk to whitelist your server IP.");
-                        }
-
-                        if (isSandbox && msg != null && msg.Contains("Unexpected error", StringComparison.OrdinalIgnoreCase))
-                        {
-                            _logger.LogWarning("[PayHere Sandbox Simulation] PayHere Sandbox returned 'Unexpected error' (test balance / reversal limitation). Auto-completing sandbox refund for order '{OrderId}'.", order.PayHereOrderId);
-                            return $"PH-SANDBOX-REF-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMddHHmmss")}";
-                        }
-
-                        throw new InvalidOperationException(
-                            $"PayHere Refund Failed: {msg}. Please verify that the Payment ID ('{paymentId}') is a valid card payment on PayHere. Note that only card payment methods (Visa, Mastercard, American Express, Discover, Diners Club) can be refunded via PayHere API. Non-card methods (Frimi, Genie, eZcash, mCash, Vishwa) cannot be refunded via PayHere and must be refunded manually via bank transfer.");
-                    }
-
-                    if (statusCode == 0)
-                    {
-                        throw new InvalidOperationException(
-                            $"PayHere Error Initiating Refund: {msg}. PayHere recovers refund funds at day-end from your merchant bank account balance or future payouts. Please ensure sufficient funds are available in your account.");
-                    }
-
-                    if (statusCode != 1)
-                    {
-                        throw new InvalidOperationException($"PayHere Refund Error ({statusCode}): {msg}");
-                    }
-                }
-
-                // Extract unique refund number from data (e.g. { "status": 1, "msg": "Successfully processed the refund", "data": 560034010257 })
-                string refundNumber = string.Empty;
-                if (root.TryGetProperty("data", out var dataElem))
-                {
-                    if (dataElem.ValueKind == System.Text.Json.JsonValueKind.Number)
-                    {
-                        refundNumber = dataElem.GetRawText();
-                    }
-                    else if (dataElem.ValueKind == System.Text.Json.JsonValueKind.String)
-                    {
-                        refundNumber = dataElem.GetString() ?? string.Empty;
-                    }
-                    else if (dataElem.ValueKind == System.Text.Json.JsonValueKind.Object && dataElem.TryGetProperty("refund_id", out var refundIdElem))
-                    {
-                        refundNumber = refundIdElem.GetString() ?? refundIdElem.GetRawText();
-                    }
-                }
-
-                if (string.IsNullOrWhiteSpace(refundNumber))
-                {
-                    refundNumber = $"PH-REF-{DateTime.UtcNow:yyyyMMddHHmmss}";
-                }
-
-                return refundNumber;
-            }
-            catch (InvalidOperationException ex)
-            {
-                if (isSandbox && (ex.Message.Contains("Unexpected error", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("Sandbox Limitation", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("Authentication error", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("OAuth", StringComparison.OrdinalIgnoreCase) ||
-                                  ex.Message.Contains("Unauthorized", StringComparison.OrdinalIgnoreCase)))
-                {
-                    _logger.LogWarning(ex, "[PayHere Sandbox Fallback] Auto-completing Sandbox refund gracefully for order '{OrderId}'.", order.PayHereOrderId);
-                    return $"PH-SANDBOX-REF-{paymentId ?? DateTime.UtcNow.ToString("yyyyMMddHHmmss")}";
-                }
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "[PayHere API] Automated refund API call encountered an unexpected error.");
-                throw new InvalidOperationException($"PayHere automated refund failed: {ex.Message}. You can issue the refund directly in your PayHere Merchant Dashboard (Payments > Request Refund) and record it using Manual Portal Entry.");
-            }
-        }
-
-        // If credentials are NOT configured:
-        if (!isSandbox)
+        // Issue 1: Do not generate fake simulated sandbox refunds when credentials are missing
+        if (string.IsNullOrWhiteSpace(appId) || string.IsNullOrWhiteSpace(appSecret))
         {
             throw new InvalidOperationException(
                 "PayHere AppId and AppSecret are not configured in the server environment. " +
-                "To process refunds via PayHere, obtain your App ID and App Secret from PayHere Dashboard (Settings > API Keys) and configure PAYHERE_APP_ID and PAYHERE_APP_SECRET, or perform the refund directly in your PayHere account (https://sandbox.payhere.lk or https://www.payhere.lk) and use 'Manual Portal Entry'.");
+                "To process refunds via PayHere, obtain your App ID and App Secret from PayHere Dashboard (Settings > API Keys) and configure PAYHERE_APP_ID and PAYHERE_APP_SECRET.");
         }
 
-        // In Sandbox mode without credentials: generate simulated reference and inform via log
-        var generatedRefundId = $"PH-REF-{DateTime.UtcNow:yyyyMMddHHmmss}-{Guid.NewGuid().ToString("N")[..6].ToUpperInvariant()}";
-        _logger.LogWarning("[PayHere Sandbox Simulation] PAYHERE_APP_ID and PAYHERE_APP_SECRET are empty. Simulated sandbox refund generated: '{RefundId}'",
-            generatedRefundId);
-        return generatedRefundId;
+        var client = _httpClientFactory != null ? _httpClientFactory.CreateClient() : new HttpClient();
+
+        // 1. Retrieve or refresh OAuth Access Token
+        var accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret);
+
+        // 2. Identify the payment via PayHere Retrieval API (/merchant/v1/payment/search?order_id=...)
+        string? discoveredPaymentId = paymentId;
+        string? livePaymentStatus = null;
+
+        _logger.LogInformation("[PayHere Retrieval API] Querying payment search for order '{OrderId}' ({PayHereOrderId})...",
+            order.Id, order.PayHereOrderId);
+
+        var searchUrl = $"{baseUrl}/merchant/v1/payment/search?order_id={Uri.EscapeDataString(order.PayHereOrderId)}";
+        var searchRequest = new HttpRequestMessage(HttpMethod.Get, searchUrl);
+        searchRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+
+        var searchResponse = await client.SendAsync(searchRequest);
+        var searchContent = await searchResponse.Content.ReadAsStringAsync();
+
+        if (searchResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+            searchContent.Contains("invalid_token", StringComparison.OrdinalIgnoreCase) ||
+            searchContent.Contains("token expired", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[PayHere Retrieval API] Token expired during payment search. Refreshing OAuth token and retrying...");
+            _cachedAccessToken = null;
+            _tokenExpiresAt = DateTime.MinValue;
+
+            accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret, forceRefresh: true);
+            searchRequest = new HttpRequestMessage(HttpMethod.Get, searchUrl);
+            searchRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            searchResponse = await client.SendAsync(searchRequest);
+            searchContent = await searchResponse.Content.ReadAsStringAsync();
+        }
+
+        _logger.LogInformation("[PayHere Retrieval API Response] Status: {StatusCode}, Body: {Body}",
+            searchResponse.StatusCode, searchContent);
+
+        if (!searchResponse.IsSuccessStatusCode)
+        {
+            if (searchResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+            {
+                throw new InvalidOperationException(
+                    "PayHere API Access Denied / Unauthorized: Check your PayHere Settings > API Keys. " +
+                    "Ensure 'Automated Charging API' permission is enabled and Allowed Domains is set correctly.");
+            }
+            throw new InvalidOperationException($"PayHere Retrieval API failed with HTTP {searchResponse.StatusCode}: {searchContent}");
+        }
+
+        using var searchDoc = JsonDocument.Parse(searchContent);
+        var sRoot = searchDoc.RootElement;
+        var sCode = sRoot.TryGetProperty("status", out var sc) ? sc.GetInt32() : -1;
+
+        if (sCode == -1)
+        {
+            var sMsg = sRoot.TryGetProperty("msg", out var sm) ? sm.GetString() : "No payments found";
+            throw new InvalidOperationException($"PayHere Retrieval API returned '{sMsg}' for Order Reference '{order.PayHereOrderId}'.");
+        }
+        if (sCode == 0)
+        {
+            throw new InvalidOperationException($"PayHere payment for order '{order.PayHereOrderId}' is currently Pending (status: 0). Refunds can only be processed on confirmed successful payments.");
+        }
+        if (sCode == -2)
+        {
+            throw new InvalidOperationException($"PayHere payment for order '{order.PayHereOrderId}' was declined or failed authentication (status: -2). No successful payment available to refund.");
+        }
+
+        if (sCode != 1 || !sRoot.TryGetProperty("data", out var dataArr) ||
+            dataArr.ValueKind != JsonValueKind.Array || dataArr.GetArrayLength() == 0)
+        {
+            throw new InvalidOperationException($"No payment records returned by PayHere Retrieval API for order '{order.PayHereOrderId}'.");
+        }
+
+        // Issue 5: Match the actual transaction from data array rather than choosing data[0]
+        var matchedPayment = FindMatchingPayment(dataArr.EnumerateArray(), order, discoveredPaymentId);
+        if (matchedPayment == null)
+        {
+            throw new InvalidOperationException(
+                $"PayHere Retrieval API returned {dataArr.GetArrayLength()} transaction(s), but none matched order reference '{order.PayHereOrderId}' with amount ${order.TotalAmount:F2} and valid payment status.");
+        }
+
+        var matchedElem = matchedPayment.Value;
+        if (matchedElem.TryGetProperty("payment_id", out var pidElem))
+        {
+            discoveredPaymentId = pidElem.ValueKind == JsonValueKind.Number
+                ? pidElem.GetInt64().ToString()
+                : pidElem.GetString()?.Trim();
+        }
+
+        livePaymentStatus = matchedElem.TryGetProperty("status", out var stElem) ? stElem.GetString()?.Trim().ToUpperInvariant() : null;
+
+        // Check payment method: PayHere only supports card payment methods for automated refund
+        if (matchedElem.TryGetProperty("payment_method", out var pmElem) &&
+            pmElem.TryGetProperty("method", out var methElem))
+        {
+            var method = methElem.GetString() ?? "";
+            if (method.Contains("FRIMI", StringComparison.OrdinalIgnoreCase) ||
+                method.Contains("GENIE", StringComparison.OrdinalIgnoreCase) ||
+                method.Contains("EZCASH", StringComparison.OrdinalIgnoreCase) ||
+                method.Contains("MCASH", StringComparison.OrdinalIgnoreCase) ||
+                method.Contains("VISHWA", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    $"PayHere automated refund only supports card payments (Visa, Mastercard, American Express). " +
+                    $"This payment was made via '{method}'. Please refund the customer manually via bank transfer.");
+            }
+        }
+
+        // Check if payment has ALREADY been refunded on PayHere
+        if (string.Equals(livePaymentStatus, "REFUNDED", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("[PayHere Retrieval API] Payment '{PaymentId}' for order '{OrderId}' is already marked 'REFUNDED' on PayHere.",
+                discoveredPaymentId, order.PayHereOrderId);
+            return new PayHereRefundExecutionResult
+            {
+                RefundReference = $"PH-REFUNDED-{discoveredPaymentId ?? DateTime.UtcNow.ToString("yyyyMMdd")}",
+                PayHereStatus = "REFUNDED",
+                DiscoveredPaymentId = discoveredPaymentId
+            };
+        }
+
+        // Check if refund is currently requested or processing on PayHere
+        if (string.Equals(livePaymentStatus, "REFUND REQUESTED", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(livePaymentStatus, "REFUND PROCESSING", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogInformation("[PayHere Retrieval API] Order '{OrderId}' refund is already in status '{Status}' on PayHere.",
+                order.PayHereOrderId, livePaymentStatus);
+            return new PayHereRefundExecutionResult
+            {
+                RefundReference = $"PH-IN-PROGRESS-{discoveredPaymentId ?? DateTime.UtcNow.ToString("yyyyMMdd")}",
+                PayHereStatus = livePaymentStatus!,
+                DiscoveredPaymentId = discoveredPaymentId
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(discoveredPaymentId))
+        {
+            throw new InvalidOperationException(
+                $"Could not resolve PayHere payment_id for order '{order.PayHereOrderId}'.");
+        }
+
+        // 3. Build and execute PayHere Refund API request (POST /merchant/v1/payment/refund) (Fix C)
+        var refundUrl = $"{baseUrl}/merchant/v1/payment/refund";
+        var refundPayload = new Dictionary<string, object>
+        {
+            { "payment_id", discoveredPaymentId.Trim() },
+            { "description", string.IsNullOrWhiteSpace(reason) ? $"Refund for order {order.PayHereOrderId}" : reason.Trim() }
+        };
+
+        if (isPartialRefund)
+        {
+            refundPayload["amount"] = amount.ToString("F2", CultureInfo.InvariantCulture);
+        }
+
+        var refundRequest = new HttpRequestMessage(HttpMethod.Post, refundUrl);
+        refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+        refundRequest.Content = new StringContent(
+            JsonSerializer.Serialize(refundPayload),
+            Encoding.UTF8,
+            "application/json");
+
+        var refundResponse = await client.SendAsync(refundRequest);
+        var refundContent = await refundResponse.Content.ReadAsStringAsync();
+
+        // Refresh token retry if needed
+        if (refundResponse.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+            refundContent.Contains("invalid_token", StringComparison.OrdinalIgnoreCase) ||
+            refundContent.Contains("token expired", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("[PayHere API] Token expired. Refreshing OAuth Access Token and retrying refund...");
+            _cachedAccessToken = null;
+            _tokenExpiresAt = DateTime.MinValue;
+
+            accessToken = await GetPayHereAccessTokenAsync(client, baseUrl, appId, appSecret, forceRefresh: true);
+            refundRequest = new HttpRequestMessage(HttpMethod.Post, refundUrl);
+            refundRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            refundRequest.Content = new StringContent(
+                JsonSerializer.Serialize(refundPayload),
+                Encoding.UTF8,
+                "application/json");
+
+            refundResponse = await client.SendAsync(refundRequest);
+            refundContent = await refundResponse.Content.ReadAsStringAsync();
+        }
+
+        _logger.LogInformation("[PayHere Refund API Response] Status: {StatusCode}, Body: {Body}",
+            refundResponse.StatusCode, refundContent);
+
+        // Fix A & Issue 1: Never fake success on failure! Reject strictly and preserve the actual response.
+        if (!refundResponse.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException($"PayHere refund failed. HTTP: {(int)refundResponse.StatusCode}");
+        }
+
+        using var refundDoc = JsonDocument.Parse(refundContent);
+        var root = refundDoc.RootElement;
+
+        // Check for error properties
+        if (root.TryGetProperty("error", out var errElem))
+        {
+            var desc = root.TryGetProperty("error_description", out var descProp) ? descProp.GetString() : errElem.GetString();
+            throw new InvalidOperationException($"PayHere API error: {desc}");
+        }
+
+        if (!root.TryGetProperty("status", out var statusProp))
+        {
+            throw new InvalidOperationException("PayHere refund response missing 'status' field.");
+        }
+
+        int status = statusProp.GetInt32();
+        if (status != 1)
+        {
+            string message = root.TryGetProperty("msg", out var msg) ? msg.GetString() ?? "Unknown refund error" : "Unknown refund error";
+            throw new InvalidOperationException($"PayHere rejected the refund: {message}");
+        }
+
+        // Extract refund reference number from data
+        string refundNumber = string.Empty;
+        if (root.TryGetProperty("data", out var dataElem))
+        {
+            if (dataElem.ValueKind == JsonValueKind.Number)
+            {
+                refundNumber = dataElem.GetRawText();
+            }
+            else if (dataElem.ValueKind == JsonValueKind.String)
+            {
+                refundNumber = dataElem.GetString() ?? string.Empty;
+            }
+            else if (dataElem.ValueKind == JsonValueKind.Object && dataElem.TryGetProperty("refund_id", out var refundIdElem))
+            {
+                refundNumber = refundIdElem.GetString() ?? refundIdElem.GetRawText();
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(refundNumber))
+        {
+            refundNumber = $"PH-REF-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        }
+
+        // Step 5: Verification via Retrieval API to confirm final payment status
+        string verifiedStatus = "REFUND REQUESTED";
+        try
+        {
+            var verifyRequest = new HttpRequestMessage(HttpMethod.Get, searchUrl);
+            verifyRequest.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", accessToken);
+            var verifyResponse = await client.SendAsync(verifyRequest);
+            if (verifyResponse.IsSuccessStatusCode)
+            {
+                var verifyContent = await verifyResponse.Content.ReadAsStringAsync();
+                using var verifyDoc = JsonDocument.Parse(verifyContent);
+                var vRoot = verifyDoc.RootElement;
+                if (vRoot.TryGetProperty("status", out var vStatus) && vStatus.GetInt32() == 1 &&
+                    vRoot.TryGetProperty("data", out var vData) && vData.ValueKind == JsonValueKind.Array)
+                {
+                    var postRefundMatch = FindMatchingPayment(vData.EnumerateArray(), order, discoveredPaymentId);
+                    if (postRefundMatch.HasValue && postRefundMatch.Value.TryGetProperty("status", out var postStElem))
+                    {
+                        var postStatus = postStElem.GetString()?.Trim().ToUpperInvariant();
+                        if (!string.IsNullOrWhiteSpace(postStatus))
+                        {
+                            verifiedStatus = postStatus;
+                        }
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "[PayHere Retrieval Verification] Non-critical error checking final payment status post-refund.");
+        }
+
+        return new PayHereRefundExecutionResult
+        {
+            RefundReference = refundNumber,
+            PayHereStatus = verifiedStatus,
+            DiscoveredPaymentId = discoveredPaymentId
+        };
     }
 
     /// <summary>
     /// Consumes PayHere Retrieval API (/merchant/v1/payment/search?order_id=...) to fetch live payment details.
     /// </summary>
-    public async Task<PayHereRetrievalDetailsDto?> RetrievePayHerePaymentAsync(Guid orderId)
+    public async Task<PayHereRetrievalDetailsDto?> RetrievePayHerePaymentAsync(Guid orderId, Guid? currentUserId = null, bool isAdmin = false)
     {
-        var order = await _context.Orders.FirstOrDefaultAsync(o => o.Id == orderId);
+        var order = await _context.Orders
+            .Include(o => o.Items)
+                .ThenInclude(i => i.Product)
+            .FirstOrDefaultAsync(o => o.Id == orderId);
         if (order == null) return null;
+
+        // Verify transaction ownership for seller caller (Fix D)
+        if (!isAdmin && currentUserId.HasValue)
+        {
+            if (!order.Items.Any(i => i.Product != null && i.Product.SellerId == currentUserId.Value))
+            {
+                throw new UnauthorizedAccessException("You are not authorized to view payment details for this order.");
+            }
+        }
 
         var isSandboxStr = _configuration.ResolveEnv("PayHere:IsSandbox", "PAYHERE_SANDBOX", "PayHere__IsSandbox") ?? "true";
         var isSandbox = isSandboxStr.Equals("true", StringComparison.OrdinalIgnoreCase);
@@ -1215,13 +1416,13 @@ public class OrderService : IOrderService
                 };
             }
 
-            using var doc = System.Text.Json.JsonDocument.Parse(searchContent);
+            using var doc = JsonDocument.Parse(searchContent);
             var root = doc.RootElement;
             var status = root.TryGetProperty("status", out var stProp) ? stProp.GetInt32() : -1;
             var msg = root.TryGetProperty("msg", out var mProp) ? mProp.GetString() : "";
 
             if (status != 1 || !root.TryGetProperty("data", out var dataArr) ||
-                dataArr.ValueKind != System.Text.Json.JsonValueKind.Array || dataArr.GetArrayLength() == 0)
+                dataArr.ValueKind != JsonValueKind.Array || dataArr.GetArrayLength() == 0)
             {
                 return new PayHereRetrievalDetailsDto
                 {
@@ -1231,11 +1432,23 @@ public class OrderService : IOrderService
                 };
             }
 
-            var p = dataArr[0];
+            // Issue 5: Match the correct transaction instead of data[0]
+            var matched = FindMatchingPayment(dataArr.EnumerateArray(), order, order.PaymentId);
+            if (matched == null)
+            {
+                return new PayHereRetrievalDetailsDto
+                {
+                    Found = false,
+                    OrderId = order.PayHereOrderId,
+                    Message = $"PayHere returned {dataArr.GetArrayLength()} transaction(s), but none matched order reference '{order.PayHereOrderId}'."
+                };
+            }
+
+            var p = matched.Value;
             string? pid = null;
             if (p.TryGetProperty("payment_id", out var pidElem))
             {
-                pid = pidElem.ValueKind == System.Text.Json.JsonValueKind.Number
+                pid = pidElem.ValueKind == JsonValueKind.Number
                     ? pidElem.GetInt64().ToString()
                     : pidElem.GetString()?.Trim();
             }
@@ -1254,7 +1467,7 @@ public class OrderService : IOrderService
 
             if (p.TryGetProperty("amount", out var amtElem))
             {
-                if (amtElem.ValueKind == System.Text.Json.JsonValueKind.Number && amtElem.TryGetDecimal(out var amt))
+                if (amtElem.ValueKind == JsonValueKind.Number && amtElem.TryGetDecimal(out var amt))
                     result.Amount = amt;
                 else if (decimal.TryParse(amtElem.GetString(), NumberStyles.Any, CultureInfo.InvariantCulture, out var parsedAmt))
                     result.Amount = parsedAmt;
@@ -1271,9 +1484,46 @@ public class OrderService : IOrderService
             if (!string.IsNullOrWhiteSpace(pid) && string.IsNullOrWhiteSpace(order.PaymentId))
             {
                 order.PaymentId = pid;
-                await _context.SaveChangesAsync();
             }
 
+            // Step 5 & Fix B: If refund was pending/processing and Retrieval API confirms REFUNDED, finalize the database state!
+            var statusStr = result.Status?.Trim().ToUpperInvariant();
+            if (string.Equals(statusStr, "REFUNDED", StringComparison.OrdinalIgnoreCase) &&
+                (order.RefundStatus.Equals("RefundPending", StringComparison.OrdinalIgnoreCase) ||
+                 order.RefundStatus.Equals("RefundProcessing", StringComparison.OrdinalIgnoreCase) ||
+                 order.RefundStatus.Equals("Requested", StringComparison.OrdinalIgnoreCase)))
+            {
+                var isPartial = order.RefundReason != null && order.RefundReason.Contains("Partial Refund", StringComparison.OrdinalIgnoreCase);
+                if (isPartial)
+                {
+                    order.RefundStatus = "PartiallyRefunded";
+                    order.PaymentStatus = "PartiallyRefunded";
+                }
+                else
+                {
+                    order.RefundStatus = "Refunded";
+                    order.PaymentStatus = "Refunded";
+                    if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+                    {
+                        order.OrderStatus = "Cancelled";
+                        foreach (var item in order.Items)
+                        {
+                            if (item.Product != null)
+                            {
+                                item.Product.StockQuantity += item.Quantity;
+                                item.Product.UpdatedAt = DateTime.UtcNow;
+                            }
+                        }
+                    }
+                }
+                order.RefundProcessedAt = DateTime.UtcNow;
+                order.UpdatedAt = DateTime.UtcNow;
+
+                _logger.LogInformation("Order '{OrderId}' confirmed as REFUNDED via PayHere Retrieval API.", order.Id);
+                await SendOrderRefundNotificationsAsync(order, result.Amount ?? order.TotalAmount, order.RefundReason ?? "PayHere confirmed refund", pid);
+            }
+
+            await _context.SaveChangesAsync();
             return result;
         }
         catch (Exception ex)
@@ -1369,10 +1619,11 @@ public class OrderService : IOrderService
             return false;
         }
 
-        if (!string.IsNullOrWhiteSpace(notification.merchant_id) && 
+        // Reject missing or unexpected merchant IDs
+        if (string.IsNullOrWhiteSpace(notification.merchant_id) || 
             !string.Equals(notification.merchant_id.Trim(), merchantId.Trim(), StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning("PayHere IPN Merchant ID mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+            _logger.LogWarning("PayHere IPN Merchant ID missing or mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
                 notification.order_id, merchantId, notification.merchant_id);
             return false;
         }
@@ -1404,41 +1655,132 @@ public class OrderService : IOrderService
             return false;
         }
 
-        // 3. Amount integrity check to prevent underpayment fraud
-        if (decimal.TryParse(notification.payhere_amount, NumberStyles.Any, CultureInfo.InvariantCulture, out var paidAmount))
-        {
-            if (notification.status_code == 2 && paidAmount < order.TotalAmount)
-            {
-                _logger.LogWarning("PayHere IPN payment amount mismatch for order '{OrderId}'. Expected at least {Expected}, received {Received}.",
-                    order.Id, order.TotalAmount, paidAmount);
-                order.PaymentStatus = "PartiallyPaid";
-                order.UpdatedAt = DateTime.UtcNow;
-                await _context.SaveChangesAsync();
-                return false;
-            }
-        }
-
+        // 3. Handle Successful Payment (status_code == 2)
         if (notification.status_code == 2)
         {
+            // Amount parsing and validation
+            if (!decimal.TryParse(
+                notification.payhere_amount,
+                NumberStyles.Number,
+                CultureInfo.InvariantCulture,
+                out var paidAmount))
+            {
+                _logger.LogWarning("PayHere IPN rejected: invalid payhere_amount format for order '{OrderId}'.", notification.order_id);
+                return false;
+            }
+
+            if (Math.Abs(paidAmount - order.TotalAmount) > 0.01m)
+            {
+                _logger.LogWarning("PayHere IPN payment amount mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+                    order.Id, order.TotalAmount, paidAmount);
+                return false;
+            }
+
+            // Currency validation
+            var expectedCurrency = _configuration["PayHere:Currency"] ?? "USD";
+            if (!string.Equals(
+                notification.payhere_currency,
+                expectedCurrency,
+                StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("PayHere IPN payment currency mismatch for order '{OrderId}'. Expected: {Expected}, Received: {Received}.",
+                    order.Id, expectedCurrency, notification.payhere_currency);
+                return false;
+            }
+
+            // Payment ID is mandatory for successful checkout
+            if (string.IsNullOrWhiteSpace(notification.payment_id))
+            {
+                _logger.LogWarning("PayHere IPN rejected: missing payment_id for successful payment on order '{OrderId}'.", notification.order_id);
+                return false;
+            }
+
+            var incomingPaymentId = notification.payment_id.Trim();
+
+            // Enforce expected payment ID if one was already recorded
+            if (!string.IsNullOrWhiteSpace(order.PaymentId) &&
+                !string.Equals(order.PaymentId, incomingPaymentId, StringComparison.OrdinalIgnoreCase))
+            {
+                _logger.LogWarning("PayHere IPN rejected: payment_id mismatch for order '{OrderId}'. Stored: {Stored}, Received: {Received}.",
+                    order.Id, order.PaymentId, incomingPaymentId);
+                return false;
+            }
+
+            // Ensure payment ID is not associated with another order
+            var isDuplicatePayment = await _context.Orders
+                .AnyAsync(o => o.Id != order.Id && o.PaymentId == incomingPaymentId);
+            if (isDuplicatePayment)
+            {
+                _logger.LogWarning("PayHere IPN rejected: payment_id '{PaymentId}' is already associated with another order.", incomingPaymentId);
+                return false;
+            }
+
             var alreadyPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
 
             order.PaymentStatus = "Paid";
             order.OrderStatus = "Processing";
-            if (!string.IsNullOrWhiteSpace(notification.payment_id))
-            {
-                order.PaymentId = notification.payment_id.Trim();
-            }
+            order.PaymentId = incomingPaymentId;
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
             _logger.LogInformation("Order '{OrderId}' successfully marked Paid via PayHere IPN notification. PaymentId: {PaymentId}.",
-                order.Id, notification.payment_id);
+                order.Id, incomingPaymentId);
 
             if (!alreadyPaid)
             {
                 await SendPaidOrderSellerNotificationsAsync(order);
             }
+
+            return true;
         }
-        else if (notification.status_code == 0)
+
+        // 4. Out-of-order notification protection:
+        // Do not allow delayed callbacks (e.g. pending, cancelled, or failed) to overwrite completed/paid orders.
+        if (string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(order.PaymentStatus, "Refunded", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(order.PaymentStatus, "PartiallyRefunded", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.LogWarning("Ignoring delayed/out-of-order PayHere IPN notification (Status code: {StatusCode}) for already completed order '{OrderId}' (Current PaymentStatus: {PaymentStatus}).",
+                notification.status_code, order.Id, order.PaymentStatus);
+            return true;
+        }
+
+        // 5. Handle Cancelled (-1), Failed (-2), or Chargedback (-3) callbacks
+        if (notification.status_code == -1 || notification.status_code == -2 || notification.status_code == -3)
+        {
+            // Restore inventory for reserved stock if order wasn't previously cancelled
+            if (!order.OrderStatus.Equals("Cancelled", StringComparison.OrdinalIgnoreCase))
+            {
+                foreach (var item in order.Items)
+                {
+                    if (item.Product != null)
+                    {
+                        item.Product.StockQuantity += item.Quantity;
+                        item.Product.UpdatedAt = DateTime.UtcNow;
+                    }
+                }
+                _logger.LogInformation("Restored catalog inventory for order '{OrderId}' due to payment status code {StatusCode}.",
+                    order.Id, notification.status_code);
+            }
+
+            order.OrderStatus = "Cancelled";
+            order.PaymentStatus = notification.status_code switch
+            {
+                -1 => "Cancelled",
+                -2 => "Failed",
+                -3 => "Chargedback",
+                _ => "Cancelled"
+            };
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogWarning("Order '{OrderId}' payment marked as {PaymentStatus} (Status code: {StatusCode}). Message: {Message}.",
+                order.Id, order.PaymentStatus, notification.status_code, notification.status_message);
+            return true;
+        }
+
+        // 6. Handle Pending Callback (status_code == 0)
+        if (notification.status_code == 0)
         {
             order.PaymentStatus = "Pending";
             if (!string.IsNullOrWhiteSpace(notification.payment_id))
@@ -1447,33 +1789,10 @@ public class OrderService : IOrderService
             }
             order.UpdatedAt = DateTime.UtcNow;
             await _context.SaveChangesAsync();
+
             _logger.LogInformation("Order '{OrderId}' payment is Pending in PayHere. PaymentId: {PaymentId}.",
                 order.Id, notification.payment_id);
-        }
-        else if (notification.status_code == -1)
-        {
-            order.PaymentStatus = "Cancelled";
-            order.OrderStatus = "Cancelled";
-            order.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-            _logger.LogWarning("Order '{OrderId}' payment was cancelled by customer.", order.Id);
-        }
-        else if (notification.status_code == -2)
-        {
-            order.PaymentStatus = "Failed";
-            order.OrderStatus = "Cancelled";
-            order.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-            _logger.LogWarning("Order '{OrderId}' payment failed with status message: {Message}.",
-                order.Id, notification.status_message);
-        }
-        else if (notification.status_code == -3)
-        {
-            order.PaymentStatus = "Chargedback";
-            order.OrderStatus = "Cancelled";
-            order.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
-            _logger.LogWarning("Order '{OrderId}' payment was chargedback.", order.Id);
+            return true;
         }
 
         return true;
@@ -1490,24 +1809,40 @@ public class OrderService : IOrderService
         if (order == null) return null;
 
         var alreadyPaid = string.Equals(order.PaymentStatus, "Paid", StringComparison.OrdinalIgnoreCase);
-
-        order.PaymentStatus = "Paid";
-        order.OrderStatus = "Processing";
-        if (!string.IsNullOrWhiteSpace(paymentId))
+        if (alreadyPaid)
         {
-            order.PaymentId = paymentId.Trim();
+            return MapToDto(order);
         }
-        order.UpdatedAt = DateTime.UtcNow;
-        await _context.SaveChangesAsync();
 
-        _logger.LogInformation("Order '{OrderId}' payment confirmed by client callback. PaymentId: {PaymentId}.",
-            order.Id, paymentId);
-
-        if (!alreadyPaid)
+        // Verify live payment directly with PayHere via Retrieval API before marking Paid
+        var retrieval = await RetrievePayHerePaymentAsync(orderId, null, isAdmin: true);
+        if (retrieval != null && retrieval.Found &&
+            (string.Equals(retrieval.Status, "RECEIVED", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(retrieval.Status, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(retrieval.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase) ||
+             string.Equals(retrieval.Status, "PAID", StringComparison.OrdinalIgnoreCase)))
         {
+            var verifiedPaymentId = !string.IsNullOrWhiteSpace(retrieval.PaymentId)
+                ? retrieval.PaymentId.Trim()
+                : paymentId?.Trim();
+
+            order.PaymentStatus = "Paid";
+            order.OrderStatus = "Processing";
+            if (!string.IsNullOrWhiteSpace(verifiedPaymentId))
+            {
+                order.PaymentId = verifiedPaymentId;
+            }
+            order.UpdatedAt = DateTime.UtcNow;
+            await _context.SaveChangesAsync();
+
+            _logger.LogInformation("Order '{OrderId}' payment verified as PAID via PayHere gateway. PaymentId: {PaymentId}.",
+                order.Id, order.PaymentId);
+
             await SendPaidOrderSellerNotificationsAsync(order);
+            return MapToDto(order);
         }
 
+        // If PayHere has not confirmed payment, return current pending order without falsely marking Paid
         return MapToDto(order);
     }
 

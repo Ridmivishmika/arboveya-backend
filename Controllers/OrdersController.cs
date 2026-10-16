@@ -289,16 +289,21 @@ public class OrdersController : ControllerBase
     }
 
     /// <summary>
-    /// Process order refund (Admin or Customer Service)
+    /// Process order refund (Admin or Authorized Seller)
     /// Restores catalog inventory, marks order as Cancelled/Refunded, cancels seller payout, and sends email notifications.
     /// </summary>
     [HttpPost("{id:guid}/refund")]
-    [AllowAnonymous]
+    [Authorize(Roles = "Admin,Seller")]
     [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> RefundOrder(Guid id, [FromBody] RefundOrderRequestDto? request)
     {
+        var currentUserId = GetCurrentUserId();
+        var isAdmin = User.IsInRole("Admin");
+
         try
         {
             var refunded = await _orderService.RefundOrderAsync(
@@ -308,7 +313,9 @@ public class OrdersController : ControllerBase
                 request?.PayHereRefundId, 
                 request?.Notes,
                 request?.AutoRefundSandbox ?? true,
-                request?.PaymentId);
+                request?.PaymentId,
+                currentUserId,
+                isAdmin);
             if (refunded == null)
             {
                 return NotFound(new { message = $"Order with ID '{id}' was not found." });
@@ -316,9 +323,17 @@ public class OrdersController : ControllerBase
 
             return Ok(refunded);
         }
+        catch (ArgumentException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
         catch (InvalidOperationException ex)
         {
             return BadRequest(new { message = ex.Message });
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
         }
         catch (Exception ex)
         {
@@ -331,17 +346,34 @@ public class OrdersController : ControllerBase
     /// Check live payment details directly from PayHere via Retrieval API
     /// </summary>
     [HttpGet("{id:guid}/payhere-status")]
-    [AllowAnonymous]
+    [Authorize(Roles = "Admin,Seller")]
     [ProducesResponseType(typeof(PayHereRetrievalDetailsDto), StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
+    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<IActionResult> GetPayHereStatus(Guid id)
     {
-        var result = await _orderService.RetrievePayHerePaymentAsync(id);
-        if (result == null)
+        var currentUserId = GetCurrentUserId();
+        var isAdmin = User.IsInRole("Admin");
+
+        try
         {
-            return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            var result = await _orderService.RetrievePayHerePaymentAsync(id, currentUserId, isAdmin);
+            if (result == null)
+            {
+                return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            }
+            return Ok(result);
         }
-        return Ok(result);
+        catch (UnauthorizedAccessException ex)
+        {
+            return StatusCode(StatusCodes.Status403Forbidden, new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Unexpected error retrieving PayHere payment status for order {OrderId}", id);
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "An error occurred while retrieving PayHere status." });
+        }
     }
 
 

@@ -21,8 +21,10 @@ public interface IOrderService
         string? payHereRefundId = null, 
         string? notes = null,
         bool autoRefundSandbox = true,
-        string? paymentId = null);
+        string? paymentId = null,
+        Guid? currentUserId = null,
+        bool isAdmin = false);
     Task<OrderResponseDto?> RequestRefundAsync(Guid orderId, CustomerRequestRefundDto dto, Guid? currentUserId, string? userEmail);
-    Task<PayHereRetrievalDetailsDto?> RetrievePayHerePaymentAsync(Guid orderId);
+    Task<PayHereRetrievalDetailsDto?> RetrievePayHerePaymentAsync(Guid orderId, Guid? currentUserId = null, bool isAdmin = false);
 }
 
