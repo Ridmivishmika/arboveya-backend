@@ -256,6 +256,10 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""ContactMessages"" ADD COLUMN IF NOT EXISTS ""UserType"" character varying(50) DEFAULT 'General';
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""CountryOfOrigin"" character varying(100);
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ExpiryDate"" timestamp with time zone;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ExpirationDate"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""WhenToUse"" character varying(200);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""OfferName"" character varying(150);
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""DiscountPercentage"" numeric(5,2) DEFAULT 0;
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""ManufactureDate"" timestamp with time zone;
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""Condition"" character varying(100) DEFAULT 'Brand New';
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""Specifications"" text;

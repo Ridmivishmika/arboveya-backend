@@ -230,6 +230,10 @@ public class ProductService : IProductService
             IsBestSeller = dto.IsBestSeller,
             CountryOfOrigin = string.IsNullOrWhiteSpace(dto.CountryOfOrigin) ? null : dto.CountryOfOrigin.Trim(),
             ExpiryDate = dto.ExpiryDate.HasValue ? DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            ExpirationDate = string.IsNullOrWhiteSpace(dto.ExpirationDate) ? null : dto.ExpirationDate.Trim(),
+            WhenToUse = string.IsNullOrWhiteSpace(dto.WhenToUse) ? null : dto.WhenToUse.Trim(),
+            OfferName = string.IsNullOrWhiteSpace(dto.OfferName) ? null : dto.OfferName.Trim(),
+            DiscountPercentage = dto.DiscountPercentage.HasValue && dto.DiscountPercentage.Value >= 0 ? dto.DiscountPercentage.Value : 0,
             ManufactureDate = dto.ManufactureDate.HasValue ? DateTime.SpecifyKind(dto.ManufactureDate.Value, DateTimeKind.Utc) : null,
             Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "Brand New" : dto.Condition.Trim(),
             Specifications = string.IsNullOrWhiteSpace(dto.Specifications) ? null : dto.Specifications.Trim(),
@@ -408,6 +412,26 @@ public class ProductService : IProductService
         if (dto.ExpiryDate.HasValue)
         {
             product.ExpiryDate = DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc);
+        }
+
+        if (dto.ExpirationDate != null)
+        {
+            product.ExpirationDate = string.IsNullOrWhiteSpace(dto.ExpirationDate) ? null : dto.ExpirationDate.Trim();
+        }
+
+        if (dto.WhenToUse != null)
+        {
+            product.WhenToUse = string.IsNullOrWhiteSpace(dto.WhenToUse) ? null : dto.WhenToUse.Trim();
+        }
+
+        if (dto.OfferName != null)
+        {
+            product.OfferName = string.IsNullOrWhiteSpace(dto.OfferName) ? null : dto.OfferName.Trim();
+        }
+
+        if (dto.DiscountPercentage.HasValue)
+        {
+            product.DiscountPercentage = dto.DiscountPercentage.Value >= 0 ? dto.DiscountPercentage.Value : 0;
         }
 
         if (dto.ManufactureDate.HasValue)
@@ -632,6 +656,10 @@ public class ProductService : IProductService
             IsBestSeller = false,
             CountryOfOrigin = string.IsNullOrWhiteSpace(dto.CountryOfOrigin) ? null : dto.CountryOfOrigin.Trim(),
             ExpiryDate = dto.ExpiryDate.HasValue ? DateTime.SpecifyKind(dto.ExpiryDate.Value, DateTimeKind.Utc) : null,
+            ExpirationDate = string.IsNullOrWhiteSpace(dto.ExpirationDate) ? null : dto.ExpirationDate.Trim(),
+            WhenToUse = string.IsNullOrWhiteSpace(dto.WhenToUse) ? null : dto.WhenToUse.Trim(),
+            OfferName = string.IsNullOrWhiteSpace(dto.OfferName) ? null : dto.OfferName.Trim(),
+            DiscountPercentage = dto.DiscountPercentage.HasValue && dto.DiscountPercentage.Value >= 0 ? dto.DiscountPercentage.Value : 0,
             ManufactureDate = dto.ManufactureDate.HasValue ? DateTime.SpecifyKind(dto.ManufactureDate.Value, DateTimeKind.Utc) : null,
             Condition = string.IsNullOrWhiteSpace(dto.Condition) ? "Brand New" : dto.Condition.Trim(),
             Specifications = string.IsNullOrWhiteSpace(dto.Specifications) ? null : dto.Specifications.Trim(),
@@ -805,6 +833,10 @@ public class ProductService : IProductService
             IsBestSeller = product.IsBestSeller,
             CountryOfOrigin = product.CountryOfOrigin,
             ExpiryDate = product.ExpiryDate,
+            ExpirationDate = product.ExpirationDate ?? (product.ExpiryDate.HasValue ? product.ExpiryDate.Value.ToString("yyyy-MM-dd") : null),
+            WhenToUse = product.WhenToUse,
+            OfferName = product.OfferName,
+            DiscountPercentage = product.DiscountPercentage ?? 0,
             ManufactureDate = product.ManufactureDate,
             Condition = product.Condition,
             Specifications = product.Specifications,

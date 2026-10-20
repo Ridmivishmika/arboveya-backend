@@ -62,6 +62,18 @@ public class Product
 
     public DateTime? ExpiryDate { get; set; }
 
+    [MaxLength(150)]
+    public string? ExpirationDate { get; set; }
+
+    [MaxLength(200)]
+    public string? WhenToUse { get; set; }
+
+    [MaxLength(150)]
+    public string? OfferName { get; set; }
+
+    [Column(TypeName = "decimal(5,2)")]
+    public decimal? DiscountPercentage { get; set; } = 0;
+
     public DateTime? ManufactureDate { get; set; }
 
     [MaxLength(100)]

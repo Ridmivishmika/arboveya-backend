@@ -50,6 +50,17 @@ public class CreateProductDto
 
     public DateTime? ExpiryDate { get; set; }
 
+    [MaxLength(150)]
+    public string? ExpirationDate { get; set; }
+
+    [MaxLength(200)]
+    public string? WhenToUse { get; set; }
+
+    [MaxLength(150)]
+    public string? OfferName { get; set; }
+
+    public decimal? DiscountPercentage { get; set; }
+
     public DateTime? ManufactureDate { get; set; }
 
     [MaxLength(100)]
@@ -112,6 +123,17 @@ public class UpdateProductDto
     public string? CountryOfOrigin { get; set; }
 
     public DateTime? ExpiryDate { get; set; }
+
+    [MaxLength(150)]
+    public string? ExpirationDate { get; set; }
+
+    [MaxLength(200)]
+    public string? WhenToUse { get; set; }
+
+    [MaxLength(150)]
+    public string? OfferName { get; set; }
+
+    public decimal? DiscountPercentage { get; set; }
 
     public DateTime? ManufactureDate { get; set; }
 
@@ -176,6 +198,17 @@ public class CreateSellerProductDto
 
     public DateTime? ExpiryDate { get; set; }
 
+    [MaxLength(150)]
+    public string? ExpirationDate { get; set; }
+
+    [MaxLength(200)]
+    public string? WhenToUse { get; set; }
+
+    [MaxLength(150)]
+    public string? OfferName { get; set; }
+
+    public decimal? DiscountPercentage { get; set; }
+
     public DateTime? ManufactureDate { get; set; }
 
     [MaxLength(100)]
@@ -238,6 +271,10 @@ public class ProductResponseDto
     public bool IsBestSeller { get; set; }
     public string? CountryOfOrigin { get; set; }
     public DateTime? ExpiryDate { get; set; }
+    public string? ExpirationDate { get; set; }
+    public string? WhenToUse { get; set; }
+    public string? OfferName { get; set; }
+    public decimal DiscountPercentage { get; set; } = 0;
     public DateTime? ManufactureDate { get; set; }
     public string? Condition { get; set; }
     public string? Specifications { get; set; }
