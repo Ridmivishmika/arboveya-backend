@@ -107,7 +107,7 @@ public class ConversationsController : ControllerBase
     [HttpGet("my")]
     [ProducesResponseType(typeof(IEnumerable<ConversationDto>), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    public async Task<IActionResult> GetMyConversations()
+    public async Task<IActionResult> GetMyConversations([FromQuery] string? view = null)
     {
         if (!TryGetUserId(out var userId))
         {
@@ -117,14 +117,29 @@ public class ConversationsController : ControllerBase
         var role = GetUserRole();
         try
         {
-            if (string.Equals(role, "Seller", StringComparison.OrdinalIgnoreCase))
+            bool isAdmin = string.Equals(role, "Admin", StringComparison.OrdinalIgnoreCase);
+            bool isSeller = string.Equals(role, "Seller", StringComparison.OrdinalIgnoreCase);
+
+            if (isAdmin)
+            {
+                // Arboveya Admin acts as a seller by default (or buyer if view=buyer is specified)
+                if (string.Equals(view, "buyer", StringComparison.OrdinalIgnoreCase))
+                {
+                    var buyerConversations = await _conversationService.GetBuyerConversationsAsync(userId);
+                    return Ok(buyerConversations);
+                }
+                var sellerConversations = await _conversationService.GetSellerConversationsAsync(userId);
+                return Ok(sellerConversations);
+            }
+
+            if (isSeller)
             {
                 var sellerConversations = await _conversationService.GetSellerConversationsAsync(userId);
                 return Ok(sellerConversations);
             }
 
-            var buyerConversations = await _conversationService.GetBuyerConversationsAsync(userId);
-            return Ok(buyerConversations);
+            var defaultBuyerConversations = await _conversationService.GetBuyerConversationsAsync(userId);
+            return Ok(defaultBuyerConversations);
         }
         catch (Exception ex)
         {

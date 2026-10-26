@@ -204,9 +204,21 @@ public class ConversationService : IConversationService
 
     public async Task<List<ConversationDto>> GetSellerConversationsAsync(Guid sellerId)
     {
-        var conversationIds = await _context.Conversations
-            .AsNoTracking()
-            .Where(c => c.SellerId == sellerId || c.BuyerId == sellerId)
+        var user = await _context.Users.AsNoTracking().FirstOrDefaultAsync(u => u.Id == sellerId);
+        bool isAdmin = user != null && string.Equals(user.Role, "Admin", StringComparison.OrdinalIgnoreCase);
+
+        var query = _context.Conversations.AsNoTracking();
+        if (isAdmin)
+        {
+            // Arboveya admin is also a seller: includes sellerId conversations, buyer conversations, and Arboveya platform products (SellerId == null)
+            query = query.Where(c => c.SellerId == sellerId || c.BuyerId == sellerId || c.SellerId == null);
+        }
+        else
+        {
+            query = query.Where(c => c.SellerId == sellerId || c.BuyerId == sellerId);
+        }
+
+        var conversationIds = await query
             .OrderByDescending(c => c.LastMessageAt ?? c.CreatedAt)
             .Select(c => c.Id)
             .ToListAsync();
@@ -214,7 +226,7 @@ public class ConversationService : IConversationService
         var list = new List<ConversationDto>();
         foreach (var id in conversationIds)
         {
-            var dto = await MapToDtoAsync(id, sellerId);
+            var dto = await MapToDtoAsync(id, sellerId, isAdmin);
             if (dto != null) list.Add(dto);
         }
         return list;
