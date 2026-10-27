@@ -250,6 +250,10 @@ using (var scope = app.Services.CreateScope())
         dbContext.Database.Migrate();
         dbContext.Database.ExecuteSqlRaw(@"
             ALTER TABLE ""BlogPosts"" ADD COLUMN IF NOT EXISTS ""Category"" character varying(100) DEFAULT 'Wellness';
+            ALTER TABLE ""BlogPosts"" ALTER COLUMN ""Category"" TYPE text;
+            ALTER TABLE ""ProductReviews"" ADD COLUMN IF NOT EXISTS ""Images"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalCategoryIds"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalCategoryNames"" text;
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""AboutHeroSubtitle"" character varying(300);
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Mission"" text;
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Vision"" text;

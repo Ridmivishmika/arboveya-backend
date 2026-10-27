@@ -14,6 +14,9 @@ public class Product
     [ForeignKey(nameof(CategoryId))]
     public Category? Category { get; set; }
 
+    public string? AdditionalCategoryIds { get; set; }
+    public string? AdditionalCategoryNames { get; set; }
+
     public Guid? WellnessNeedId { get; set; }
 
     [ForeignKey(nameof(WellnessNeedId))]

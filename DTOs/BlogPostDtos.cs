@@ -11,8 +11,8 @@ public class CreateBlogPostDto
     [Required(ErrorMessage = "Blog content is required.")]
     public string Content { get; set; } = string.Empty;
 
-    [MaxLength(100, ErrorMessage = "Category cannot exceed 100 characters.")]
     public string? Category { get; set; } = "Wellness";
+    public List<string>? Categories { get; set; }
 
     [MaxLength(500, ErrorMessage = "ImageUrl cannot exceed 500 characters.")]
     public string? ImageUrl { get; set; }
@@ -25,8 +25,8 @@ public class UpdateBlogPostDto
 
     public string? Content { get; set; }
 
-    [MaxLength(100, ErrorMessage = "Category cannot exceed 100 characters.")]
     public string? Category { get; set; }
+    public List<string>? Categories { get; set; }
 
     [MaxLength(500, ErrorMessage = "ImageUrl cannot exceed 500 characters.")]
     public string? ImageUrl { get; set; }
@@ -50,6 +50,7 @@ public class BlogPostResponseDto
     public string Title { get; set; } = string.Empty;
     public string Content { get; set; } = string.Empty;
     public string Category { get; set; } = "Wellness";
+    public List<string> Categories { get; set; } = new();
     public string? ImageUrl { get; set; }
     public bool IsApproved { get; set; }
     public DateTime CreatedAt { get; set; }

@@ -39,7 +39,9 @@ public class ProductService : IProductService
 
         if (categoryId.HasValue)
         {
-            query = query.Where(p => p.CategoryId == categoryId.Value);
+            var cidStr = categoryId.Value.ToString();
+            query = query.Where(p => p.CategoryId == categoryId.Value ||
+                                     (p.AdditionalCategoryIds != null && p.AdditionalCategoryIds.Contains(cidStr)));
         }
 
         if (wellnessNeedId.HasValue)
@@ -172,10 +174,39 @@ public class ProductService : IProductService
 
     public async Task<ProductResponseDto> CreateAsync(CreateProductDto dto)
     {
-        var category = await _context.Categories.FindAsync(dto.CategoryId);
+        var categoryIds = dto.CategoryIds ?? new List<Guid>();
+        if (dto.CategoryId != Guid.Empty && !categoryIds.Contains(dto.CategoryId))
+        {
+            categoryIds.Insert(0, dto.CategoryId);
+        }
+        if (dto.AdditionalCategoryIds != null)
+        {
+            foreach (var extra in dto.AdditionalCategoryIds)
+            {
+                if (!categoryIds.Contains(extra)) categoryIds.Add(extra);
+            }
+        }
+
+        var primaryCategoryId = categoryIds.FirstOrDefault();
+        if (primaryCategoryId == Guid.Empty)
+        {
+            primaryCategoryId = dto.CategoryId;
+        }
+
+        var category = await _context.Categories.FindAsync(primaryCategoryId);
         if (category == null)
         {
-            throw new ArgumentException($"Category with ID '{dto.CategoryId}' does not exist.");
+            throw new ArgumentException($"Category with ID '{primaryCategoryId}' does not exist.");
+        }
+
+        var extraCategoryIds = categoryIds.Where(c => c != primaryCategoryId).ToList();
+        List<string> extraNames = new();
+        if (extraCategoryIds.Count > 0)
+        {
+            extraNames = await _context.Categories
+                .Where(c => extraCategoryIds.Contains(c.Id))
+                .Select(c => c.Name)
+                .ToListAsync();
         }
 
         WellnessNeed? wellnessNeed = null;
@@ -213,8 +244,10 @@ public class ProductService : IProductService
         var product = new Product
         {
             Id = Guid.NewGuid(),
-            CategoryId = dto.CategoryId,
+            CategoryId = primaryCategoryId,
             Category = category,
+            AdditionalCategoryIds = extraCategoryIds.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraCategoryIds) : null,
+            AdditionalCategoryNames = extraNames.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraNames) : null,
             WellnessNeedId = wellnessNeed?.Id,
             WellnessNeed = wellnessNeed,
             Name = trimmedName,
@@ -311,7 +344,43 @@ public class ProductService : IProductService
             product.AdminFeedback = "Product details updated by seller. Awaiting Admin review.";
         }
 
-        if (dto.CategoryId.HasValue && dto.CategoryId.Value != product.CategoryId)
+        var updateCategoryIds = dto.CategoryIds;
+        if (updateCategoryIds == null && dto.AdditionalCategoryIds != null)
+        {
+            updateCategoryIds = new List<Guid>();
+            if (dto.CategoryId.HasValue) updateCategoryIds.Add(dto.CategoryId.Value);
+            else if (product.CategoryId.HasValue) updateCategoryIds.Add(product.CategoryId.Value);
+            updateCategoryIds.AddRange(dto.AdditionalCategoryIds);
+        }
+
+        if (updateCategoryIds != null && updateCategoryIds.Count > 0)
+        {
+            var primaryCatId = updateCategoryIds[0];
+            var category = await _context.Categories.FindAsync(primaryCatId);
+            if (category == null)
+            {
+                throw new ArgumentException($"Category with ID '{primaryCatId}' does not exist.");
+            }
+            product.CategoryId = primaryCatId;
+            product.Category = category;
+
+            var extraIds = updateCategoryIds.Skip(1).ToList();
+            if (extraIds.Count > 0)
+            {
+                var extraNames = await _context.Categories
+                    .Where(c => extraIds.Contains(c.Id))
+                    .Select(c => c.Name)
+                    .ToListAsync();
+                product.AdditionalCategoryIds = System.Text.Json.JsonSerializer.Serialize(extraIds);
+                product.AdditionalCategoryNames = System.Text.Json.JsonSerializer.Serialize(extraNames);
+            }
+            else
+            {
+                product.AdditionalCategoryIds = null;
+                product.AdditionalCategoryNames = null;
+            }
+        }
+        else if (dto.CategoryId.HasValue && dto.CategoryId.Value != product.CategoryId)
         {
             var category = await _context.Categories.FindAsync(dto.CategoryId.Value);
             if (category == null)
@@ -735,27 +804,46 @@ public class ProductService : IProductService
         // If approving, category assignment is required
         if (newStatus.Equals("Approved", StringComparison.OrdinalIgnoreCase))
         {
-            if (dto.CategoryId == Guid.Empty)
+            var modCategoryIds = dto.CategoryIds;
+            if (modCategoryIds == null && dto.AdditionalCategoryIds != null)
             {
-                throw new ArgumentException("Please select a category to assign to this product upon approval.");
+                modCategoryIds = new List<Guid> { dto.CategoryId };
+                modCategoryIds.AddRange(dto.AdditionalCategoryIds);
             }
 
-            var category = await _context.Categories.FindAsync(dto.CategoryId);
-            if (category == null)
+            if (modCategoryIds != null && modCategoryIds.Count > 0)
             {
-                throw new ArgumentException($"Category with ID '{dto.CategoryId}' does not exist.");
+                var primaryCatId = modCategoryIds[0];
+                var category = await _context.Categories.FindAsync(primaryCatId);
+                if (category != null)
+                {
+                    product.CategoryId = primaryCatId;
+                    product.Category = category;
+                }
+                var extraIds = modCategoryIds.Skip(1).ToList();
+                if (extraIds.Count > 0)
+                {
+                    var extraNames = await _context.Categories
+                        .Where(c => extraIds.Contains(c.Id))
+                        .Select(c => c.Name)
+                        .ToListAsync();
+                    product.AdditionalCategoryIds = System.Text.Json.JsonSerializer.Serialize(extraIds);
+                    product.AdditionalCategoryNames = System.Text.Json.JsonSerializer.Serialize(extraNames);
+                }
+                else
+                {
+                    product.AdditionalCategoryIds = null;
+                    product.AdditionalCategoryNames = null;
+                }
             }
-
-            product.CategoryId = dto.CategoryId;
-            product.Category = category;
-        }
-        else if (dto.CategoryId != Guid.Empty)
-        {
-            var category = await _context.Categories.FindAsync(dto.CategoryId);
-            if (category != null)
+            else if (dto.CategoryId != Guid.Empty)
             {
-                product.CategoryId = dto.CategoryId;
-                product.Category = category;
+                var category = await _context.Categories.FindAsync(dto.CategoryId);
+                if (category != null)
+                {
+                    product.CategoryId = dto.CategoryId;
+                    product.Category = category;
+                }
             }
         }
 
@@ -809,11 +897,60 @@ public class ProductService : IProductService
             finalWeight = sortedVariants[0].Weight;
         }
 
+        var categoryIds = new List<Guid>();
+        var categoryNames = new List<string>();
+
+        if (product.CategoryId.HasValue && product.CategoryId.Value != Guid.Empty)
+        {
+            categoryIds.Add(product.CategoryId.Value);
+            if (!string.IsNullOrWhiteSpace(product.Category?.Name))
+            {
+                categoryNames.Add(product.Category.Name);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(product.AdditionalCategoryIds))
+        {
+            try
+            {
+                var extraIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(product.AdditionalCategoryIds);
+                if (extraIds != null)
+                {
+                    foreach (var cid in extraIds)
+                    {
+                        if (!categoryIds.Contains(cid)) categoryIds.Add(cid);
+                    }
+                }
+            }
+            catch {}
+        }
+
+        if (!string.IsNullOrWhiteSpace(product.AdditionalCategoryNames))
+        {
+            try
+            {
+                var extraNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(product.AdditionalCategoryNames);
+                if (extraNames != null)
+                {
+                    foreach (var name in extraNames)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name) && !categoryNames.Contains(name))
+                        {
+                            categoryNames.Add(name);
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
         return new ProductResponseDto
         {
             Id = product.Id,
             CategoryId = product.CategoryId,
             CategoryName = product.Category?.Name,
+            CategoryIds = categoryIds,
+            CategoryNames = categoryNames,
             WellnessNeedId = product.WellnessNeedId,
             WellnessNeedName = product.WellnessNeed?.Name,
             SellerId = product.SellerId,

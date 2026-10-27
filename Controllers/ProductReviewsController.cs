@@ -282,6 +282,52 @@ public class ProductReviewsController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Upload photos for customer reviews from device or drag-and-drop (no fixed limit on number of images)
+    /// </summary>
+    [HttpPost("upload-images")]
+    [AllowAnonymous]
+    [Consumes("multipart/form-data")]
+    public async Task<IActionResult> UploadReviewImages(List<IFormFile> files)
+    {
+        var inputFiles = (files != null && files.Count > 0) ? files : Request.Form.Files.ToList();
+        if (inputFiles == null || inputFiles.Count == 0)
+        {
+            return BadRequest(new { message = "Please select at least one photo to upload." });
+        }
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
+        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "reviews");
+        if (!Directory.Exists(webRootPath))
+        {
+            Directory.CreateDirectory(webRootPath);
+        }
+
+        var uploadedUrls = new List<string>();
+
+        foreach (var file in inputFiles)
+        {
+            if (file == null || file.Length == 0) continue;
+
+            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(extension)) continue;
+
+            if (file.Length > 20 * 1024 * 1024) continue; // 20MB safety limit per photo
+
+            var uniqueFileName = $"review_{Guid.NewGuid():N}_{DateTime.UtcNow.Ticks}{extension}";
+            var filePath = Path.Combine(webRootPath, uniqueFileName);
+
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            uploadedUrls.Add($"/uploads/reviews/{uniqueFileName}");
+        }
+
+        return Ok(new { imageUrls = uploadedUrls });
+    }
+
     private Guid? GetCurrentUserId()
     {
         var claim = User.FindFirstValue(ClaimTypes.NameIdentifier);

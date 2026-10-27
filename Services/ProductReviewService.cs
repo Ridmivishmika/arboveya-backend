@@ -141,6 +141,7 @@ public class ProductReviewService : IProductReviewService
             UserId = userId,
             Rating = dto.Rating,
             Comment = string.IsNullOrWhiteSpace(dto.Comment) ? null : dto.Comment.Trim(),
+            Images = dto.Images != null && dto.Images.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(dto.Images) : null,
             IsApproved = true, // Immediately visible; no admin approval required
             CreatedAt = DateTime.UtcNow
         };
@@ -231,6 +232,10 @@ public class ProductReviewService : IProductReviewService
         {
             existingReview.Rating = dto.Rating;
             existingReview.Comment = storedComment;
+            if (dto.Images != null)
+            {
+                existingReview.Images = dto.Images.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(dto.Images) : null;
+            }
             existingReview.IsApproved = true;
             existingReview.UpdatedAt = DateTime.UtcNow;
             existingReview.UserId = user.Id;
@@ -252,6 +257,7 @@ public class ProductReviewService : IProductReviewService
             UserId = user.Id,
             Rating = dto.Rating,
             Comment = storedComment,
+            Images = dto.Images != null && dto.Images.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(dto.Images) : null,
             IsApproved = true,
             CreatedAt = DateTime.UtcNow
         };
@@ -349,6 +355,11 @@ public class ProductReviewService : IProductReviewService
             review.Comment = !string.IsNullOrEmpty(orderTag)
                 ? $"{orderTag} [{author}] {cleanComment}"
                 : $"[{author}] {cleanComment}";
+        }
+
+        if (dto.Images != null)
+        {
+            review.Images = dto.Images.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(dto.Images) : null;
         }
 
         review.IsApproved = true;
@@ -449,6 +460,19 @@ public class ProductReviewService : IProductReviewService
             authorName = review.User != null ? $"{review.User.FirstName} {review.User.LastName}".Trim() : "Verified Customer";
         }
 
+        List<string> images = new();
+        if (!string.IsNullOrWhiteSpace(review.Images))
+        {
+            try
+            {
+                images = System.Text.Json.JsonSerializer.Deserialize<List<string>>(review.Images) ?? new();
+            }
+            catch
+            {
+                images = review.Images.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+            }
+        }
+
         return new ProductReviewResponseDto
         {
             Id = review.Id,
@@ -459,6 +483,7 @@ public class ProductReviewService : IProductReviewService
             Rating = review.Rating,
             Comment = displayComment,
             OrderId = orderId,
+            Images = images,
             IsApproved = review.IsApproved,
             CreatedAt = review.CreatedAt,
             UpdatedAt = review.UpdatedAt

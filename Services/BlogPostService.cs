@@ -107,13 +107,23 @@ public class BlogPostService : IBlogPostService
             throw new UnauthorizedAccessException("Author account not found.");
         }
 
+        string category = "Wellness";
+        if (dto.Categories != null && dto.Categories.Count > 0)
+        {
+            category = string.Join(", ", dto.Categories.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).Distinct());
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.Category))
+        {
+            category = dto.Category.Trim();
+        }
+
         var blog = new BlogPost
         {
             Id = Guid.NewGuid(),
             AuthorId = authorId,
             Title = dto.Title.Trim(),
             Content = dto.Content.Trim(),
-            Category = string.IsNullOrWhiteSpace(dto.Category) ? "Wellness" : dto.Category.Trim(),
+            Category = category,
             ImageUrl = string.IsNullOrWhiteSpace(dto.ImageUrl) ? null : dto.ImageUrl.Trim(),
             IsApproved = isAdmin, // Admins auto-approved; regular users require moderation
             CreatedAt = DateTime.UtcNow
@@ -161,7 +171,13 @@ public class BlogPostService : IBlogPostService
             blog.Content = dto.Content.Trim();
         }
 
-        if (!string.IsNullOrWhiteSpace(dto.Category))
+        if (dto.Categories != null)
+        {
+            blog.Category = dto.Categories.Count > 0 
+                ? string.Join(", ", dto.Categories.Where(c => !string.IsNullOrWhiteSpace(c)).Select(c => c.Trim()).Distinct())
+                : "Wellness";
+        }
+        else if (!string.IsNullOrWhiteSpace(dto.Category))
         {
             blog.Category = dto.Category.Trim();
         }
@@ -236,6 +252,10 @@ public class BlogPostService : IBlogPostService
         var authorIsSellerApproved = blog.Author?.IsSellerApproved ?? false;
         var isPublished = blog.IsApproved && (authorRole != "Seller" || authorIsSellerApproved);
 
+        var rawCategory = blog.Category ?? "Wellness";
+        var categoriesList = rawCategory.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).ToList();
+        if (categoriesList.Count == 0) categoriesList.Add("Wellness");
+
         return new BlogPostResponseDto
         {
             Id = blog.Id,
@@ -247,7 +267,8 @@ public class BlogPostService : IBlogPostService
             IsPublished = isPublished,
             Title = blog.Title,
             Content = blog.Content,
-            Category = blog.Category ?? "Wellness",
+            Category = rawCategory,
+            Categories = categoriesList,
             ImageUrl = blog.ImageUrl,
             IsApproved = blog.IsApproved,
             CreatedAt = blog.CreatedAt,

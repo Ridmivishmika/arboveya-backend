@@ -13,6 +13,8 @@ public class CreateProductReviewDto
 
     [MaxLength(2000, ErrorMessage = "Comment cannot exceed 2000 characters.")]
     public string? Comment { get; set; }
+
+    public List<string> Images { get; set; } = new();
 }
 
 public class UpdateProductReviewDto
@@ -29,6 +31,8 @@ public class UpdateProductReviewDto
     public Guid? ProductId { get; set; }
 
     public string? OrderId { get; set; }
+
+    public List<string>? Images { get; set; }
 }
 
 public class ReviewModerationDto
@@ -47,6 +51,7 @@ public class ProductReviewResponseDto
     public int Rating { get; set; }
     public string? Comment { get; set; }
     public string? OrderId { get; set; }
+    public List<string> Images { get; set; } = new();
     public bool IsApproved { get; set; }
     public DateTime CreatedAt { get; set; }
     public DateTime? UpdatedAt { get; set; }
@@ -72,5 +77,7 @@ public class PublicProductReviewDto
     [Required(ErrorMessage = "Comment is required.")]
     [MaxLength(2000, ErrorMessage = "Comment cannot exceed 2000 characters.")]
     public string Comment { get; set; } = string.Empty;
+
+    public List<string> Images { get; set; } = new();
 }
 

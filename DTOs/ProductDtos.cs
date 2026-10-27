@@ -15,6 +15,9 @@ public class CreateProductDto
     [Required(ErrorMessage = "CategoryId is required.")]
     public Guid CategoryId { get; set; }
 
+    public List<Guid>? AdditionalCategoryIds { get; set; }
+    public List<Guid>? CategoryIds { get; set; }
+
     public Guid? WellnessNeedId { get; set; }
 
     [Required(ErrorMessage = "Product name is required.")]
@@ -89,6 +92,8 @@ public class CreateProductDto
 public class UpdateProductDto
 {
     public Guid? CategoryId { get; set; }
+    public List<Guid>? AdditionalCategoryIds { get; set; }
+    public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
 
@@ -164,6 +169,8 @@ public class UpdateProductDto
 public class CreateSellerProductDto
 {
     public Guid? CategoryId { get; set; }
+    public List<Guid>? AdditionalCategoryIds { get; set; }
+    public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
 
@@ -239,6 +246,8 @@ public class ApproveProductDto
 {
     [Required(ErrorMessage = "Category assignment is required for product approval.")]
     public Guid CategoryId { get; set; }
+    public List<Guid>? AdditionalCategoryIds { get; set; }
+    public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
 
@@ -252,6 +261,8 @@ public class ProductResponseDto
     public Guid Id { get; set; }
     public Guid? CategoryId { get; set; }
     public string? CategoryName { get; set; }
+    public List<Guid> CategoryIds { get; set; } = new();
+    public List<string> CategoryNames { get; set; } = new();
     public Guid? WellnessNeedId { get; set; }
     public string? WellnessNeedName { get; set; }
     public Guid? SellerId { get; set; }
