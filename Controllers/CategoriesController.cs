@@ -10,11 +10,16 @@ namespace Arboveya.Api.Controllers;
 public class CategoriesController : ControllerBase
 {
     private readonly ICategoryService _categoryService;
+    private readonly ICloudStorageService _cloudStorage;
     private readonly ILogger<CategoriesController> _logger;
 
-    public CategoriesController(ICategoryService categoryService, ILogger<CategoriesController> logger)
+    public CategoriesController(
+        ICategoryService categoryService, 
+        ICloudStorageService cloudStorage, 
+        ILogger<CategoriesController> logger)
     {
         _categoryService = categoryService;
+        _cloudStorage = cloudStorage;
         _logger = logger;
     }
 
@@ -186,33 +191,19 @@ public class CategoriesController : ControllerBase
             return BadRequest(new { message = "Please select an image file to upload." });
         }
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!allowedExtensions.Contains(extension))
+        try
         {
-            return BadRequest(new { message = $"Unsupported file format '{extension}'. Allowed formats: jpg, jpeg, png, webp, avif, svg." });
+            var imageUrl = await _cloudStorage.UploadImageAsync(file, "arboveya/categories");
+            return Ok(new { imageUrl });
         }
-
-        if (file.Length > 10 * 1024 * 1024) // 10MB limit
+        catch (ArgumentException ex)
         {
-            return BadRequest(new { message = "Image size exceeds maximum limit of 10MB." });
+            return BadRequest(new { message = ex.Message });
         }
-
-        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        if (!Directory.Exists(webRootPath))
+        catch (Exception ex)
         {
-            Directory.CreateDirectory(webRootPath);
+            _logger.LogError(ex, "Unexpected error uploading category image");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Error uploading image." });
         }
-
-        var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
-        var filePath = Path.Combine(webRootPath, uniqueFileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var relativeUrl = $"/uploads/{uniqueFileName}";
-        return Ok(new { imageUrl = relativeUrl, fileName = uniqueFileName });
     }
 }

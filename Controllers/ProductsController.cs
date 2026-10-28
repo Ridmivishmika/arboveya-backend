@@ -10,11 +10,16 @@ namespace Arboveya.Api.Controllers;
 public class ProductsController : ControllerBase
 {
     private readonly IProductService _productService;
+    private readonly ICloudStorageService _cloudStorage;
     private readonly ILogger<ProductsController> _logger;
 
-    public ProductsController(IProductService productService, ILogger<ProductsController> logger)
+    public ProductsController(
+        IProductService productService, 
+        ICloudStorageService cloudStorage, 
+        ILogger<ProductsController> logger)
     {
         _productService = productService;
+        _cloudStorage = cloudStorage;
         _logger = logger;
     }
 
@@ -215,34 +220,20 @@ public class ProductsController : ControllerBase
             return BadRequest(new { message = "Please select an image file to upload." });
         }
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
-        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!allowedExtensions.Contains(extension))
+        try
         {
-            return BadRequest(new { message = $"Unsupported file format '{extension}'. Allowed: jpg, jpeg, png, webp, avif, svg." });
+            var imageUrl = await _cloudStorage.UploadImageAsync(file, "arboveya/products");
+            return Ok(new { imageUrl });
         }
-
-        if (file.Length > 10 * 1024 * 1024) // 10MB limit
+        catch (ArgumentException ex)
         {
-            return BadRequest(new { message = "Image size exceeds maximum limit of 10MB." });
+            return BadRequest(new { message = ex.Message });
         }
-
-        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        if (!Directory.Exists(webRootPath))
+        catch (Exception ex)
         {
-            Directory.CreateDirectory(webRootPath);
+            _logger.LogError(ex, "Unexpected error uploading product image");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Error uploading image." });
         }
-
-        var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
-        var filePath = Path.Combine(webRootPath, uniqueFileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var relativeUrl = $"/uploads/{uniqueFileName}";
-        return Ok(new { imageUrl = relativeUrl, fileName = uniqueFileName });
     }
 
     /// <summary>
@@ -264,39 +255,21 @@ public class ProductsController : ControllerBase
             return BadRequest(new { message = "A maximum of 10 photos can be uploaded at once." });
         }
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
-        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        if (!Directory.Exists(webRootPath))
-        {
-            Directory.CreateDirectory(webRootPath);
-        }
-
         var uploadedUrls = new List<string>();
 
         foreach (var file in files)
         {
             if (file == null || file.Length == 0) continue;
 
-            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (!allowedExtensions.Contains(extension))
+            try
             {
-                return BadRequest(new { message = $"File '{file.FileName}' has unsupported format. Allowed: jpg, jpeg, png, webp, avif, svg." });
+                var url = await _cloudStorage.UploadImageAsync(file, "arboveya/products");
+                uploadedUrls.Add(url);
             }
-
-            if (file.Length > 10 * 1024 * 1024)
+            catch (Exception ex)
             {
-                return BadRequest(new { message = $"File '{file.FileName}' exceeds 10MB limit." });
+                _logger.LogWarning(ex, "Error uploading one of the product images: {FileName}", file.FileName);
             }
-
-            var uniqueFileName = $"{Guid.NewGuid():N}{extension}";
-            var filePath = Path.Combine(webRootPath, uniqueFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
-            {
-                await file.CopyToAsync(stream);
-            }
-
-            uploadedUrls.Add($"/uploads/{uniqueFileName}");
         }
 
         return Ok(new { imageUrls = uploadedUrls });

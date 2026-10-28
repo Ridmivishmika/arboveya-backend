@@ -12,11 +12,16 @@ namespace Arboveya.Api.Controllers;
 public class ProductReviewsController : ControllerBase
 {
     private readonly IProductReviewService _reviewService;
+    private readonly ICloudStorageService _cloudStorage;
     private readonly ILogger<ProductReviewsController> _logger;
 
-    public ProductReviewsController(IProductReviewService reviewService, ILogger<ProductReviewsController> logger)
+    public ProductReviewsController(
+        IProductReviewService reviewService, 
+        ICloudStorageService cloudStorage, 
+        ILogger<ProductReviewsController> logger)
     {
         _reviewService = reviewService;
+        _cloudStorage = cloudStorage;
         _logger = logger;
     }
 
@@ -296,33 +301,21 @@ public class ProductReviewsController : ControllerBase
             return BadRequest(new { message = "Please select at least one photo to upload." });
         }
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".avif", ".svg" };
-        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads", "reviews");
-        if (!Directory.Exists(webRootPath))
-        {
-            Directory.CreateDirectory(webRootPath);
-        }
-
         var uploadedUrls = new List<string>();
 
         foreach (var file in inputFiles)
         {
             if (file == null || file.Length == 0) continue;
 
-            var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
-            if (!allowedExtensions.Contains(extension)) continue;
-
-            if (file.Length > 20 * 1024 * 1024) continue; // 20MB safety limit per photo
-
-            var uniqueFileName = $"review_{Guid.NewGuid():N}_{DateTime.UtcNow.Ticks}{extension}";
-            var filePath = Path.Combine(webRootPath, uniqueFileName);
-
-            using (var stream = new FileStream(filePath, FileMode.Create))
+            try
             {
-                await file.CopyToAsync(stream);
+                var url = await _cloudStorage.UploadImageAsync(file, "arboveya/reviews");
+                uploadedUrls.Add(url);
             }
-
-            uploadedUrls.Add($"/uploads/reviews/{uniqueFileName}");
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Error uploading review photo: {FileName}", file.FileName);
+            }
         }
 
         return Ok(new { imageUrls = uploadedUrls });

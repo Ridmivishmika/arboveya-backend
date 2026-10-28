@@ -63,6 +63,10 @@ SyncEnvAlias("SMTP_USER", "Email__SmtpUser");
 SyncEnvAlias("SMTP_PASS", "Email__SmtpPass");
 SyncEnvAlias("SMTP_FROM", "Email__FromEmail");
 SyncEnvAlias("SMTP_FROM_NAME", "Email__FromName");
+SyncEnvAlias("CLOUDINARY_CLOUD_NAME", "Cloudinary__CloudName");
+SyncEnvAlias("CLOUDINARY_API_KEY", "Cloudinary__ApiKey");
+SyncEnvAlias("CLOUDINARY_API_SECRET", "Cloudinary__ApiSecret");
+SyncEnvAlias("CLOUDINARY_URL", "Cloudinary__Url");
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Configuration.AddEnvironmentVariables();
@@ -94,6 +98,7 @@ builder.Services.AddScoped<ISiteSettingsService, SiteSettingsService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddScoped<IContactMessageService, ContactMessageService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
+builder.Services.AddScoped<ICloudStorageService, CloudinaryStorageService>();
 builder.Services.AddHostedService<PayHereBackgroundVerificationService>();
 
 // 4. Configure JWT Authentication

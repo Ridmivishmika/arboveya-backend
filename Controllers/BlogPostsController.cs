@@ -12,11 +12,16 @@ namespace Arboveya.Api.Controllers;
 public class BlogPostsController : ControllerBase
 {
     private readonly IBlogPostService _blogService;
+    private readonly ICloudStorageService _cloudStorage;
     private readonly ILogger<BlogPostsController> _logger;
 
-    public BlogPostsController(IBlogPostService blogService, ILogger<BlogPostsController> logger)
+    public BlogPostsController(
+        IBlogPostService blogService, 
+        ICloudStorageService cloudStorage, 
+        ILogger<BlogPostsController> logger)
     {
         _blogService = blogService;
+        _cloudStorage = cloudStorage;
         _logger = logger;
     }
 
@@ -261,34 +266,20 @@ public class BlogPostsController : ControllerBase
             return BadRequest(new { message = "Please select an image file to upload." });
         }
 
-        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".webp", ".gif" };
-        var ext = Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!allowedExtensions.Contains(ext))
+        try
         {
-            return BadRequest(new { message = "Only image formats (.jpg, .jpeg, .png, .webp, .gif) are supported." });
+            var imageUrl = await _cloudStorage.UploadImageAsync(file, "arboveya/blogs");
+            return Ok(new { imageUrl });
         }
-
-        if (file.Length > 10 * 1024 * 1024)
+        catch (ArgumentException ex)
         {
-            return BadRequest(new { message = "Image size cannot exceed 10MB." });
+            return BadRequest(new { message = ex.Message });
         }
-
-        var webRootPath = Path.Combine(Directory.GetCurrentDirectory(), "wwwroot", "uploads");
-        if (!Directory.Exists(webRootPath))
+        catch (Exception ex)
         {
-            Directory.CreateDirectory(webRootPath);
+            _logger.LogError(ex, "Unexpected error uploading blog image");
+            return StatusCode(StatusCodes.Status500InternalServerError, new { message = "Error uploading image." });
         }
-
-        var uniqueFileName = $"{Guid.NewGuid():N}{ext}";
-        var filePath = Path.Combine(webRootPath, uniqueFileName);
-
-        using (var stream = new FileStream(filePath, FileMode.Create))
-        {
-            await file.CopyToAsync(stream);
-        }
-
-        var relativeUrl = $"/uploads/{uniqueFileName}";
-        return Ok(new { imageUrl = relativeUrl });
     }
 
     private Guid? GetCurrentUserId()
