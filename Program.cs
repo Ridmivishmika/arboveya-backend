@@ -259,6 +259,8 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""ProductReviews"" ADD COLUMN IF NOT EXISTS ""Images"" text;
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalCategoryIds"" text;
             ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalCategoryNames"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalWellnessNeedIds"" text;
+            ALTER TABLE ""Products"" ADD COLUMN IF NOT EXISTS ""AdditionalWellnessNeedNames"" text;
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""AboutHeroSubtitle"" character varying(300);
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Mission"" text;
             ALTER TABLE ""SiteSettings"" ADD COLUMN IF NOT EXISTS ""Vision"" text;

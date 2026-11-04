@@ -19,6 +19,8 @@ public class CreateProductDto
     public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
+    public List<Guid>? AdditionalWellnessNeedIds { get; set; }
+    public List<Guid>? WellnessNeedIds { get; set; }
 
     [Required(ErrorMessage = "Product name is required.")]
     [MaxLength(200, ErrorMessage = "Product name cannot exceed 200 characters.")]
@@ -96,6 +98,8 @@ public class UpdateProductDto
     public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
+    public List<Guid>? AdditionalWellnessNeedIds { get; set; }
+    public List<Guid>? WellnessNeedIds { get; set; }
 
     [MaxLength(200, ErrorMessage = "Product name cannot exceed 200 characters.")]
     public string? Name { get; set; }
@@ -173,6 +177,8 @@ public class CreateSellerProductDto
     public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
+    public List<Guid>? AdditionalWellnessNeedIds { get; set; }
+    public List<Guid>? WellnessNeedIds { get; set; }
 
     [Required(ErrorMessage = "Product name is required.")]
     [MaxLength(200, ErrorMessage = "Product name cannot exceed 200 characters.")]
@@ -250,6 +256,8 @@ public class ApproveProductDto
     public List<Guid>? CategoryIds { get; set; }
 
     public Guid? WellnessNeedId { get; set; }
+    public List<Guid>? AdditionalWellnessNeedIds { get; set; }
+    public List<Guid>? WellnessNeedIds { get; set; }
 
     public string ApprovalStatus { get; set; } = "Approved"; // "Approved" or "Rejected"
 
@@ -265,6 +273,8 @@ public class ProductResponseDto
     public List<string> CategoryNames { get; set; } = new();
     public Guid? WellnessNeedId { get; set; }
     public string? WellnessNeedName { get; set; }
+    public List<Guid> WellnessNeedIds { get; set; } = new();
+    public List<string> WellnessNeedNames { get; set; } = new();
     public Guid? SellerId { get; set; }
     public string? SellerName { get; set; }
     public string ApprovalStatus { get; set; } = "Approved";

@@ -22,6 +22,9 @@ public class Product
     [ForeignKey(nameof(WellnessNeedId))]
     public WellnessNeed? WellnessNeed { get; set; }
 
+    public string? AdditionalWellnessNeedIds { get; set; }
+    public string? AdditionalWellnessNeedNames { get; set; }
+
     public Guid? SellerId { get; set; }
 
     [ForeignKey(nameof(SellerId))]

@@ -46,7 +46,9 @@ public class ProductService : IProductService
 
         if (wellnessNeedId.HasValue)
         {
-            query = query.Where(p => p.WellnessNeedId == wellnessNeedId.Value);
+            var widStr = wellnessNeedId.Value.ToString();
+            query = query.Where(p => p.WellnessNeedId == wellnessNeedId.Value ||
+                                     (p.AdditionalWellnessNeedIds != null && p.AdditionalWellnessNeedIds.Contains(widStr)));
         }
 
         if (minPrice.HasValue)
@@ -209,14 +211,38 @@ public class ProductService : IProductService
                 .ToListAsync();
         }
 
-        WellnessNeed? wellnessNeed = null;
-        if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty)
+        var wellnessNeedIds = dto.WellnessNeedIds ?? new List<Guid>();
+        if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty && !wellnessNeedIds.Contains(dto.WellnessNeedId.Value))
         {
-            wellnessNeed = await _context.WellnessNeeds.FindAsync(dto.WellnessNeedId.Value);
-            if (wellnessNeed == null)
+            wellnessNeedIds.Insert(0, dto.WellnessNeedId.Value);
+        }
+        if (dto.AdditionalWellnessNeedIds != null)
+        {
+            foreach (var extra in dto.AdditionalWellnessNeedIds)
             {
-                throw new ArgumentException($"Wellness need with ID '{dto.WellnessNeedId.Value}' does not exist.");
+                if (!wellnessNeedIds.Contains(extra)) wellnessNeedIds.Add(extra);
             }
+        }
+
+        var primaryWellnessNeedId = wellnessNeedIds.FirstOrDefault();
+        WellnessNeed? wellnessNeed = null;
+        if (primaryWellnessNeedId != Guid.Empty)
+        {
+            wellnessNeed = await _context.WellnessNeeds.FindAsync(primaryWellnessNeedId);
+            if (wellnessNeed == null && dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty)
+            {
+                throw new ArgumentException($"Wellness need with ID '{primaryWellnessNeedId}' does not exist.");
+            }
+        }
+
+        var extraWellnessNeedIds = wellnessNeedIds.Where(w => w != primaryWellnessNeedId && w != Guid.Empty).ToList();
+        List<string> extraWellnessNeedNames = new();
+        if (extraWellnessNeedIds.Count > 0)
+        {
+            extraWellnessNeedNames = await _context.WellnessNeeds
+                .Where(w => extraWellnessNeedIds.Contains(w.Id))
+                .Select(w => w.Name)
+                .ToListAsync();
         }
 
         var trimmedName = dto.Name.Trim();
@@ -250,6 +276,8 @@ public class ProductService : IProductService
             AdditionalCategoryNames = extraNames.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraNames) : null,
             WellnessNeedId = wellnessNeed?.Id,
             WellnessNeed = wellnessNeed,
+            AdditionalWellnessNeedIds = extraWellnessNeedIds.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraWellnessNeedIds) : null,
+            AdditionalWellnessNeedNames = extraWellnessNeedNames.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraWellnessNeedNames) : null,
             Name = trimmedName,
             Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
             Price = dto.Price,
@@ -391,12 +419,61 @@ public class ProductService : IProductService
             product.Category = category;
         }
 
-        if (dto.WellnessNeedId.HasValue)
+        var updateWellnessNeedIds = dto.WellnessNeedIds;
+        if (updateWellnessNeedIds == null && dto.AdditionalWellnessNeedIds != null)
+        {
+            updateWellnessNeedIds = new List<Guid>();
+            if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty) updateWellnessNeedIds.Add(dto.WellnessNeedId.Value);
+            else if (product.WellnessNeedId.HasValue) updateWellnessNeedIds.Add(product.WellnessNeedId.Value);
+            updateWellnessNeedIds.AddRange(dto.AdditionalWellnessNeedIds);
+        }
+
+        if (updateWellnessNeedIds != null)
+        {
+            var validWids = updateWellnessNeedIds.Where(w => w != Guid.Empty).Distinct().ToList();
+            if (validWids.Count > 0)
+            {
+                var primaryWid = validWids[0];
+                var wellnessNeed = await _context.WellnessNeeds.FindAsync(primaryWid);
+                if (wellnessNeed == null)
+                {
+                    throw new ArgumentException($"Wellness need with ID '{primaryWid}' does not exist.");
+                }
+                product.WellnessNeedId = primaryWid;
+                product.WellnessNeed = wellnessNeed;
+
+                var extraWids = validWids.Skip(1).ToList();
+                if (extraWids.Count > 0)
+                {
+                    var extraWNames = await _context.WellnessNeeds
+                        .Where(w => extraWids.Contains(w.Id))
+                        .Select(w => w.Name)
+                        .ToListAsync();
+                    product.AdditionalWellnessNeedIds = System.Text.Json.JsonSerializer.Serialize(extraWids);
+                    product.AdditionalWellnessNeedNames = System.Text.Json.JsonSerializer.Serialize(extraWNames);
+                }
+                else
+                {
+                    product.AdditionalWellnessNeedIds = null;
+                    product.AdditionalWellnessNeedNames = null;
+                }
+            }
+            else
+            {
+                product.WellnessNeedId = null;
+                product.WellnessNeed = null;
+                product.AdditionalWellnessNeedIds = null;
+                product.AdditionalWellnessNeedNames = null;
+            }
+        }
+        else if (dto.WellnessNeedId.HasValue)
         {
             if (dto.WellnessNeedId.Value == Guid.Empty)
             {
                 product.WellnessNeedId = null;
                 product.WellnessNeed = null;
+                product.AdditionalWellnessNeedIds = null;
+                product.AdditionalWellnessNeedNames = null;
             }
             else if (dto.WellnessNeedId.Value != product.WellnessNeedId)
             {
@@ -695,12 +772,36 @@ public class ProductService : IProductService
             if (targetCat != null) targetCatId = targetCat.Id;
         }
 
+        var sellerWellnessNeedIds = dto.WellnessNeedIds ?? new List<Guid>();
+        if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty && !sellerWellnessNeedIds.Contains(dto.WellnessNeedId.Value))
+        {
+            sellerWellnessNeedIds.Insert(0, dto.WellnessNeedId.Value);
+        }
+        if (dto.AdditionalWellnessNeedIds != null)
+        {
+            foreach (var extra in dto.AdditionalWellnessNeedIds)
+            {
+                if (!sellerWellnessNeedIds.Contains(extra)) sellerWellnessNeedIds.Add(extra);
+            }
+        }
+
         Guid? targetNeedId = null;
         WellnessNeed? targetNeed = null;
-        if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty)
+        var primaryWid = sellerWellnessNeedIds.FirstOrDefault();
+        if (primaryWid != Guid.Empty)
         {
-            targetNeed = await _context.WellnessNeeds.FindAsync(dto.WellnessNeedId.Value);
+            targetNeed = await _context.WellnessNeeds.FindAsync(primaryWid);
             if (targetNeed != null) targetNeedId = targetNeed.Id;
+        }
+
+        var extraSellerWids = sellerWellnessNeedIds.Where(w => w != primaryWid && w != Guid.Empty).ToList();
+        List<string> extraSellerWNames = new();
+        if (extraSellerWids.Count > 0)
+        {
+            extraSellerWNames = await _context.WellnessNeeds
+                .Where(w => extraSellerWids.Contains(w.Id))
+                .Select(w => w.Name)
+                .ToListAsync();
         }
 
         var product = new Product
@@ -711,6 +812,8 @@ public class ProductService : IProductService
             Category = targetCat,
             WellnessNeedId = targetNeedId,
             WellnessNeed = targetNeed,
+            AdditionalWellnessNeedIds = extraSellerWids.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraSellerWids) : null,
+            AdditionalWellnessNeedNames = extraSellerWNames.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraSellerWNames) : null,
             ApprovalStatus = "Pending", // Requires Admin approval
             Name = trimmedName,
             Description = string.IsNullOrWhiteSpace(dto.Description) ? null : dto.Description.Trim(),
@@ -847,14 +950,71 @@ public class ProductService : IProductService
             }
         }
 
-        // Assign or update Wellness Need upon approval
-        if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty)
+        // Assign or update Wellness Needs upon approval
+        var modWellnessNeedIds = dto.WellnessNeedIds;
+        if (modWellnessNeedIds == null && dto.AdditionalWellnessNeedIds != null)
         {
-            var wellnessNeed = await _context.WellnessNeeds.FindAsync(dto.WellnessNeedId.Value);
-            if (wellnessNeed != null)
+            modWellnessNeedIds = new List<Guid>();
+            if (dto.WellnessNeedId.HasValue && dto.WellnessNeedId.Value != Guid.Empty)
             {
-                product.WellnessNeedId = dto.WellnessNeedId.Value;
-                product.WellnessNeed = wellnessNeed;
+                modWellnessNeedIds.Add(dto.WellnessNeedId.Value);
+            }
+            modWellnessNeedIds.AddRange(dto.AdditionalWellnessNeedIds);
+        }
+
+        if (modWellnessNeedIds != null)
+        {
+            var validWids = modWellnessNeedIds.Where(w => w != Guid.Empty).Distinct().ToList();
+            if (validWids.Count > 0)
+            {
+                var primaryWid = validWids[0];
+                var wellnessNeed = await _context.WellnessNeeds.FindAsync(primaryWid);
+                if (wellnessNeed != null)
+                {
+                    product.WellnessNeedId = primaryWid;
+                    product.WellnessNeed = wellnessNeed;
+                }
+                var extraWids = validWids.Skip(1).ToList();
+                if (extraWids.Count > 0)
+                {
+                    var extraWNames = await _context.WellnessNeeds
+                        .Where(w => extraWids.Contains(w.Id))
+                        .Select(w => w.Name)
+                        .ToListAsync();
+                    product.AdditionalWellnessNeedIds = System.Text.Json.JsonSerializer.Serialize(extraWids);
+                    product.AdditionalWellnessNeedNames = System.Text.Json.JsonSerializer.Serialize(extraWNames);
+                }
+                else
+                {
+                    product.AdditionalWellnessNeedIds = null;
+                    product.AdditionalWellnessNeedNames = null;
+                }
+            }
+            else
+            {
+                product.WellnessNeedId = null;
+                product.WellnessNeed = null;
+                product.AdditionalWellnessNeedIds = null;
+                product.AdditionalWellnessNeedNames = null;
+            }
+        }
+        else if (dto.WellnessNeedId.HasValue)
+        {
+            if (dto.WellnessNeedId.Value == Guid.Empty)
+            {
+                product.WellnessNeedId = null;
+                product.WellnessNeed = null;
+                product.AdditionalWellnessNeedIds = null;
+                product.AdditionalWellnessNeedNames = null;
+            }
+            else
+            {
+                var wellnessNeed = await _context.WellnessNeeds.FindAsync(dto.WellnessNeedId.Value);
+                if (wellnessNeed != null)
+                {
+                    product.WellnessNeedId = dto.WellnessNeedId.Value;
+                    product.WellnessNeed = wellnessNeed;
+                }
             }
         }
 
@@ -944,6 +1104,53 @@ public class ProductService : IProductService
             catch {}
         }
 
+        var wellnessNeedIds = new List<Guid>();
+        var wellnessNeedNames = new List<string>();
+
+        if (product.WellnessNeedId.HasValue && product.WellnessNeedId.Value != Guid.Empty)
+        {
+            wellnessNeedIds.Add(product.WellnessNeedId.Value);
+            if (!string.IsNullOrWhiteSpace(product.WellnessNeed?.Name))
+            {
+                wellnessNeedNames.Add(product.WellnessNeed.Name);
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(product.AdditionalWellnessNeedIds))
+        {
+            try
+            {
+                var extraWids = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(product.AdditionalWellnessNeedIds);
+                if (extraWids != null)
+                {
+                    foreach (var wid in extraWids)
+                    {
+                        if (!wellnessNeedIds.Contains(wid)) wellnessNeedIds.Add(wid);
+                    }
+                }
+            }
+            catch {}
+        }
+
+        if (!string.IsNullOrWhiteSpace(product.AdditionalWellnessNeedNames))
+        {
+            try
+            {
+                var extraWNames = System.Text.Json.JsonSerializer.Deserialize<List<string>>(product.AdditionalWellnessNeedNames);
+                if (extraWNames != null)
+                {
+                    foreach (var name in extraWNames)
+                    {
+                        if (!string.IsNullOrWhiteSpace(name) && !wellnessNeedNames.Contains(name))
+                        {
+                            wellnessNeedNames.Add(name);
+                        }
+                    }
+                }
+            }
+            catch {}
+        }
+
         return new ProductResponseDto
         {
             Id = product.Id,
@@ -953,6 +1160,8 @@ public class ProductService : IProductService
             CategoryNames = categoryNames,
             WellnessNeedId = product.WellnessNeedId,
             WellnessNeedName = product.WellnessNeed?.Name,
+            WellnessNeedIds = wellnessNeedIds,
+            WellnessNeedNames = wellnessNeedNames,
             SellerId = product.SellerId,
             SellerName = product.Seller != null ? $"{product.Seller.FirstName} {product.Seller.LastName}".Trim() : null,
             ApprovalStatus = product.ApprovalStatus ?? "Approved",
