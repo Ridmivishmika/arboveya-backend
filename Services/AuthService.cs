@@ -54,6 +54,8 @@ public class AuthService : IAuthService
             PasswordHash = passwordHash,
             Role = assignedRole,
             Address = request.Address?.Trim(),
+            City = request.City?.Trim(),
+            ZipCode = request.ZipCode?.Trim(),
             Nationality = request.Nationality?.Trim(),
             PhoneNumber = request.PhoneNumber?.Trim(),
             BankName = request.BankName?.Trim(),
@@ -141,6 +143,16 @@ public class AuthService : IAuthService
         if (request.Address != null)
         {
             user.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
+        }
+
+        if (request.City != null)
+        {
+            user.City = string.IsNullOrWhiteSpace(request.City) ? null : request.City.Trim();
+        }
+
+        if (request.ZipCode != null)
+        {
+            user.ZipCode = string.IsNullOrWhiteSpace(request.ZipCode) ? null : request.ZipCode.Trim();
         }
 
         if (request.Nationality != null)
@@ -311,6 +323,8 @@ public class AuthService : IAuthService
             Email = user.Email,
             Role = user.Role,
             Address = user.Address,
+            City = user.City,
+            ZipCode = user.ZipCode,
             Nationality = user.Nationality,
             PhoneNumber = user.PhoneNumber,
             IsSellerApproved = user.IsSellerApproved,

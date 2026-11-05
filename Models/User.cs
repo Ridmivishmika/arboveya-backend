@@ -32,6 +32,12 @@ public class User
     public string? Address { get; set; }
 
     [MaxLength(100)]
+    public string? City { get; set; }
+
+    [MaxLength(50)]
+    public string? ZipCode { get; set; }
+
+    [MaxLength(100)]
     public string? Nationality { get; set; }
 
     [MaxLength(30)]

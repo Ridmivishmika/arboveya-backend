@@ -300,8 +300,10 @@ public class OrderService : IOrderService
                 ? dto.Country.Trim()
                 : "United States";
 
-            var city = "Colombo";
-            if (!string.IsNullOrWhiteSpace(shippingAddress))
+            var city = !string.IsNullOrWhiteSpace(dto.City) 
+                ? dto.City.Trim() 
+                : "Colombo";
+            if (string.IsNullOrWhiteSpace(dto.City) && !string.IsNullOrWhiteSpace(shippingAddress))
             {
                 var addrParts = shippingAddress.Split(',', StringSplitOptions.RemoveEmptyEntries);
                 if (addrParts.Length > 1)

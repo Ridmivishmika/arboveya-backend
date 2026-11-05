@@ -13,6 +13,12 @@ public class UpdateProfileDto
     [MaxLength(500, ErrorMessage = "Address cannot exceed 500 characters.")]
     public string? Address { get; set; }
 
+    [MaxLength(100, ErrorMessage = "City cannot exceed 100 characters.")]
+    public string? City { get; set; }
+
+    [MaxLength(50, ErrorMessage = "Zip code cannot exceed 50 characters.")]
+    public string? ZipCode { get; set; }
+
     [MaxLength(50, ErrorMessage = "Nationality cannot exceed 50 characters.")]
     public string? Nationality { get; set; }
 

@@ -28,6 +28,12 @@ public class CreateOrderDto
     public string? ShippingAddress { get; set; }
     
     [MaxLength(100)]
+    public string? City { get; set; }
+
+    [MaxLength(50)]
+    public string? ZipCode { get; set; }
+
+    [MaxLength(100)]
     public string? Country { get; set; }
 
     [MaxLength(50)]

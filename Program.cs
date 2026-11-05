@@ -288,6 +288,8 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippedAt"" timestamp with time zone;
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""PaymentId"" character varying(100);
             ALTER TABLE ""BlogPosts"" ALTER COLUMN ""ImageUrl"" TYPE text;
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""City"" character varying(100);
+            ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""ZipCode"" character varying(50);
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankName"" character varying(150);
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankAccountName"" character varying(150);
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankAccountNumber"" character varying(100);
