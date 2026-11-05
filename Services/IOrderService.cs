@@ -14,6 +14,7 @@ public interface IOrderService
     Task<OrderResponseDto?> UpdateOrderTrackingAsync(Guid id, UpdateOrderTrackingDto dto);
     Task<bool> ProcessPayHereNotificationAsync(PayHereNotificationDto notification);
     Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId);
+    Task<OrderResponseDto?> ConfirmOrderPaymentAsync(string idOrReference, string? paymentId);
     Task<OrderResponseDto?> RefundOrderAsync(
         Guid orderId, 
         string? reason = null, 

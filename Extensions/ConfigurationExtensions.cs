@@ -37,6 +37,7 @@ public static class ConfigurationExtensions
             {
                 return resolved.Trim();
             }
+            return null;
         }
 
         // 4. Resolve %VAR_NAME% format
@@ -49,6 +50,7 @@ public static class ConfigurationExtensions
             {
                 return resolved.Trim();
             }
+            return null;
         }
 
         // 5. If val directly matches an environment variable name

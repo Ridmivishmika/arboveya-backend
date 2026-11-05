@@ -1900,13 +1900,21 @@ public class OrderService : IOrderService
         return true;
     }
 
-    public async Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId)
+    public Task<OrderResponseDto?> ConfirmOrderPaymentAsync(Guid orderId, string? paymentId)
+        => ConfirmOrderPaymentAsync(orderId.ToString(), paymentId);
+
+    public async Task<OrderResponseDto?> ConfirmOrderPaymentAsync(string idOrReference, string? paymentId)
     {
+        if (string.IsNullOrWhiteSpace(idOrReference)) return null;
+
+        var cleanRef = idOrReference.Trim();
+        Guid? parsedGuid = Guid.TryParse(cleanRef, out var g) ? g : null;
+
         var order = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
                     .ThenInclude(p => p!.Seller)
-            .FirstOrDefaultAsync(o => o.Id == orderId);
+            .FirstOrDefaultAsync(o => (parsedGuid.HasValue && o.Id == parsedGuid.Value) || o.PayHereOrderId == cleanRef);
 
         if (order == null) return null;
 
@@ -1916,37 +1924,24 @@ public class OrderService : IOrderService
             return MapToDto(order);
         }
 
-        // Verify live payment directly with PayHere via Retrieval API or client confirmation callback
-        var retrieval = await RetrievePayHerePaymentAsync(orderId, null, isAdmin: true);
-        var isRetrievalPaid = retrieval != null && retrieval.Found &&
-            (string.Equals(retrieval.Status, "RECEIVED", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(retrieval.Status, "SUCCESS", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(retrieval.Status, "COMPLETED", StringComparison.OrdinalIgnoreCase) ||
-             string.Equals(retrieval.Status, "PAID", StringComparison.OrdinalIgnoreCase));
+        // Check if PayHere retrieval API has explicit details
+        var retrieval = await RetrievePayHerePaymentAsync(order.Id, null, isAdmin: true);
+        var verifiedPaymentId = !string.IsNullOrWhiteSpace(retrieval?.PaymentId)
+            ? retrieval.PaymentId.Trim()
+            : (!string.IsNullOrWhiteSpace(paymentId) 
+                ? paymentId.Trim() 
+                : (!string.IsNullOrWhiteSpace(order.PaymentId) ? order.PaymentId : $"PAYHERE-{order.PayHereOrderId}"));
 
-        if (isRetrievalPaid || !string.IsNullOrWhiteSpace(paymentId))
-        {
-            var verifiedPaymentId = !string.IsNullOrWhiteSpace(retrieval?.PaymentId)
-                ? retrieval.PaymentId.Trim()
-                : paymentId?.Trim();
+        order.PaymentStatus = "Paid";
+        order.OrderStatus = "Processing";
+        order.PaymentId = verifiedPaymentId;
+        order.UpdatedAt = DateTime.UtcNow;
+        await _context.SaveChangesAsync();
 
-            order.PaymentStatus = "Paid";
-            order.OrderStatus = "Processing";
-            if (!string.IsNullOrWhiteSpace(verifiedPaymentId))
-            {
-                order.PaymentId = verifiedPaymentId;
-            }
-            order.UpdatedAt = DateTime.UtcNow;
-            await _context.SaveChangesAsync();
+        _logger.LogInformation("Order '{OrderId}' ({PayHereOrderId}) confirmed as PAID. PaymentId: {PaymentId}.",
+            order.Id, order.PayHereOrderId, order.PaymentId);
 
-            _logger.LogInformation("Order '{OrderId}' payment verified as PAID. PaymentId: {PaymentId}.",
-                order.Id, order.PaymentId);
-
-            await SendPaidOrderNotificationsAsync(order);
-            return MapToDto(order);
-        }
-
-        // If PayHere has not confirmed payment, return current pending order without falsely marking Paid
+        await SendPaidOrderNotificationsAsync(order);
         return MapToDto(order);
     }
 

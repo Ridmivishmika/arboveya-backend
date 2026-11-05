@@ -17,10 +17,13 @@ public class EmailService : IEmailService
 
     public async Task<bool> SendEmailAsync(string toEmail, string subject, string htmlBody, string? replyToEmail = null)
     {
-        var smtpHost = _configuration.ResolveEnv("Email:SmtpHost", "SMTP_HOST", "Email__SmtpHost");
+        var smtpHost = _configuration.ResolveEnv("Email:SmtpHost", "SMTP_HOST", "Email__SmtpHost")
+            ?? "smtp.gmail.com";
         var smtpPortStr = _configuration.ResolveEnv("Email:SmtpPort", "SMTP_PORT", "Email__SmtpPort");
-        var smtpUser = _configuration.ResolveEnv("Email:SmtpUser", "SMTP_USER", "Email__SmtpUser");
-        var smtpPass = _configuration.ResolveEnv("Email:SmtpPass", "SMTP_PASS", "Email__SmtpPass");
+        var smtpUser = _configuration.ResolveEnv("Email:SmtpUser", "SMTP_USER", "Email__SmtpUser")
+            ?? "arboveya@gmail.com";
+        var smtpPass = _configuration.ResolveEnv("Email:SmtpPass", "SMTP_PASS", "Email__SmtpPass")
+            ?? "sbtb urtp ppvb rzzv";
         var fromEmail = _configuration.ResolveEnv("Email:FromEmail", "SMTP_FROM", "Email__FromEmail")
             ?? (string.IsNullOrWhiteSpace(smtpUser) ? "arboveya@gmail.com" : smtpUser);
         var fromName = _configuration.ResolveEnv("Email:FromName", "SMTP_FROM_NAME", "Email__FromName")

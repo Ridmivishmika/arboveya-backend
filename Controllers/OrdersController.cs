@@ -118,16 +118,17 @@ public class OrdersController : ControllerBase
     /// <summary>
     /// Confirm payment directly from client callback (used for instant sandbox / local feedback)
     /// </summary>
-    [HttpPost("{id:guid}/confirm-payment")]
+    [HttpPost("{idOrReference}/confirm-payment")]
     [AllowAnonymous]
     [ProducesResponseType(typeof(OrderResponseDto), StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<IActionResult> ConfirmPayment(Guid id, [FromBody] ConfirmPaymentRequestDto? dto)
+    public async Task<IActionResult> ConfirmPayment(string idOrReference, [FromBody] ConfirmPaymentRequestDto? dto)
     {
-        var updatedOrder = await _orderService.ConfirmOrderPaymentAsync(id, dto?.PaymentId);
+        var paymentId = dto?.PaymentId ?? dto?.PayHereOrderId;
+        var updatedOrder = await _orderService.ConfirmOrderPaymentAsync(idOrReference, paymentId);
         if (updatedOrder == null)
         {
-            return NotFound(new { message = $"Order with ID '{id}' was not found." });
+            return NotFound(new { message = $"Order with reference '{idOrReference}' was not found." });
         }
 
         return Ok(updatedOrder);
@@ -162,23 +163,27 @@ public class OrdersController : ControllerBase
     [ProducesResponseType(typeof(IEnumerable<OrderResponseDto>), StatusCodes.Status200OK)]
     public async Task<IActionResult> GetMyOrders([FromQuery] string? email)
     {
+        var orders = new List<OrderResponseDto>();
         var currentUserId = GetCurrentUserId();
         if (currentUserId.HasValue)
         {
-            var orders = await _orderService.GetUserOrdersAsync(currentUserId.Value);
-            if (orders.Any())
-            {
-                return Ok(orders);
-            }
+            var userOrders = await _orderService.GetUserOrdersAsync(currentUserId.Value);
+            orders.AddRange(userOrders);
         }
 
         if (!string.IsNullOrWhiteSpace(email))
         {
-            var orders = await _orderService.GetOrdersByEmailAsync(email.Trim());
-            return Ok(orders);
+            var emailOrders = await _orderService.GetOrdersByEmailAsync(email.Trim());
+            foreach (var eo in emailOrders)
+            {
+                if (!orders.Any(o => o.Id == eo.Id))
+                {
+                    orders.Add(eo);
+                }
+            }
         }
 
-        return Ok(Array.Empty<OrderResponseDto>());
+        return Ok(orders.OrderByDescending(o => o.CreatedAt));
     }
 
     /// <summary>
