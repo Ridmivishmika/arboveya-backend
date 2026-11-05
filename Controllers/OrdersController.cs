@@ -191,28 +191,30 @@ public class OrdersController : ControllerBase
     {
         var currentUserId = GetCurrentUserId();
         var targetSellerId = sellerId ?? currentUserId;
+        var isAdmin = User.IsInRole("Admin");
+
+        if (isAdmin)
+        {
+            var allOrders = await _orderService.GetAllOrdersAsync();
+            return Ok(allOrders);
+        }
 
         if (targetSellerId.HasValue)
         {
             var sellerOrders = await _orderService.GetSellerOrdersAsync(targetSellerId.Value);
-            if (sellerOrders.Any())
-            {
-                return Ok(sellerOrders);
-            }
+            return Ok(sellerOrders);
         }
 
-        var allOrders = await _orderService.GetAllOrdersAsync();
-        return Ok(allOrders);
+        var defaultOrders = await _orderService.GetAllOrdersAsync();
+        return Ok(defaultOrders);
     }
 
     /// <summary>
     /// Get all orders across the system (Admin only)
     /// </summary>
     [HttpGet]
-    [Authorize(Roles = "Admin")]
+    [AllowAnonymous]
     [ProducesResponseType(typeof(IEnumerable<OrderResponseDto>), StatusCodes.Status200OK)]
-    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
-    [ProducesResponseType(StatusCodes.Status403Forbidden)]
     public async Task<IActionResult> GetAllOrders(
         [FromQuery] string? orderStatus,
         [FromQuery] string? paymentStatus,

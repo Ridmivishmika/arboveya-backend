@@ -267,9 +267,13 @@ public class ProductService : IProductService
             }
         }
 
+        var adminUser = await _context.Users.FirstOrDefaultAsync(u => u.Role == "Admin");
+
         var product = new Product
         {
             Id = Guid.NewGuid(),
+            SellerId = adminUser?.Id,
+            Seller = adminUser,
             CategoryId = primaryCategoryId,
             Category = category,
             AdditionalCategoryIds = extraCategoryIds.Count > 0 ? System.Text.Json.JsonSerializer.Serialize(extraCategoryIds) : null,

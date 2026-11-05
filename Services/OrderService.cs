@@ -366,11 +366,13 @@ public class OrderService : IOrderService
         var user = await _context.Users.FindAsync(userId);
         var userEmail = user?.Email?.ToLower();
 
+        // In buyer portal only show paid orders (Paid, Refunded, PartiallyRefunded); exclude unpaid/pending cart checkout attempts
         var orders = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
             .AsNoTracking()
-            .Where(o => o.UserId == userId || (userEmail != null && o.CustomerEmail != null && o.CustomerEmail.ToLower() == userEmail))
+            .Where(o => (o.UserId == userId || (userEmail != null && o.CustomerEmail != null && o.CustomerEmail.ToLower() == userEmail))
+                     && (o.PaymentStatus.ToLower() == "paid" || o.PaymentStatus.ToLower() == "refunded" || o.PaymentStatus.ToLower() == "partiallyrefunded"))
             .OrderByDescending(o => o.CreatedAt)
             .Select(o => MapToDto(o))
             .ToListAsync();
@@ -381,11 +383,14 @@ public class OrderService : IOrderService
     public async Task<IEnumerable<OrderResponseDto>> GetOrdersByEmailAsync(string email)
     {
         var cleanEmail = email.Trim().ToLower();
+
+        // In buyer portal only show paid orders (Paid, Refunded, PartiallyRefunded); exclude unpaid/pending cart checkout attempts
         var orders = await _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
             .AsNoTracking()
-            .Where(o => o.CustomerEmail != null && o.CustomerEmail.ToLower() == cleanEmail)
+            .Where(o => o.CustomerEmail != null && o.CustomerEmail.ToLower() == cleanEmail
+                     && (o.PaymentStatus.ToLower() == "paid" || o.PaymentStatus.ToLower() == "refunded" || o.PaymentStatus.ToLower() == "partiallyrefunded"))
             .OrderByDescending(o => o.CreatedAt)
             .Select(o => MapToDto(o))
             .ToListAsync();
@@ -395,11 +400,25 @@ public class OrderService : IOrderService
 
     public async Task<IEnumerable<OrderResponseDto>> GetSellerOrdersAsync(Guid sellerId)
     {
-        // Query orders that contain products belonging to this seller
-        var orders = await _context.Orders
+        // Admin is considered seller of the platform: see all orders
+        var user = await _context.Users.FindAsync(sellerId);
+        var isAdmin = user != null && user.Role.Equals("Admin", StringComparison.OrdinalIgnoreCase);
+
+        var query = _context.Orders
             .Include(o => o.Items)
                 .ThenInclude(i => i.Product)
-            .AsNoTracking()
+            .AsNoTracking();
+
+        if (isAdmin)
+        {
+            return await query
+                .OrderByDescending(o => o.CreatedAt)
+                .Select(o => MapToDto(o))
+                .ToListAsync();
+        }
+
+        // Query orders that contain products belonging to this seller or platform/admin products
+        var orders = await query
             .Where(o => o.Items.Any(i => i.Product != null && (i.Product.SellerId == sellerId || i.Product.SellerId == null)))
             .OrderByDescending(o => o.CreatedAt)
             .Select(o => MapToDto(o))

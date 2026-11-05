@@ -86,7 +86,7 @@ public class ContactMessageService : IContactMessageService
         try
         {
             var adminEmail = (_configuration.ResolveEnv("Admin:Email", "ADMIN_EMAIL", "Admin__Email")
-                ?? "admin@arboveya.com").Trim();
+                ?? "arboveya@gmail.com").Trim();
 
             var safeMessageBody = HttpUtility.HtmlEncode(message.Message).Replace("\n", "<br/>");
             var emailSubject = $"[Arboveya {message.UserType} Inquiry] {message.Subject}";

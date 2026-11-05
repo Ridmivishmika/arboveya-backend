@@ -22,7 +22,7 @@ public class EmailService : IEmailService
         var smtpUser = _configuration.ResolveEnv("Email:SmtpUser", "SMTP_USER", "Email__SmtpUser");
         var smtpPass = _configuration.ResolveEnv("Email:SmtpPass", "SMTP_PASS", "Email__SmtpPass");
         var fromEmail = _configuration.ResolveEnv("Email:FromEmail", "SMTP_FROM", "Email__FromEmail")
-            ?? (string.IsNullOrWhiteSpace(smtpUser) ? "care@arboveya.com" : smtpUser);
+            ?? (string.IsNullOrWhiteSpace(smtpUser) ? "arboveya@gmail.com" : smtpUser);
         var fromName = _configuration.ResolveEnv("Email:FromName", "SMTP_FROM_NAME", "Email__FromName")
             ?? "Arboveya";
 

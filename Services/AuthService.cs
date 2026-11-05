@@ -42,12 +42,8 @@ public class AuthService : IAuthService
         // Securely hash/encrypt password using BCrypt with workFactor 12 and enhanced salt
         var passwordHash = BCrypt.Net.BCrypt.EnhancedHashPassword(request.Password, workFactor: 12);
 
-        // Disallow self-registering as Admin
-        var assignedRole = string.IsNullOrWhiteSpace(request.Role) ? "Customer" : request.Role.Trim();
-        if (assignedRole.Equals("Admin", StringComparison.OrdinalIgnoreCase))
-        {
-            assignedRole = "Customer";
-        }
+        // Seller and Admin public registrations are disabled. All registered accounts are strictly Customer (Buyer) accounts.
+        var assignedRole = "Customer";
 
         var user = new User
         {
@@ -92,6 +88,11 @@ public class AuthService : IAuthService
         if (user == null)
         {
             throw new UnauthorizedAccessException("Account not registered. Please sign up or register first before signing in.");
+        }
+
+        if (user.Role == "Seller")
+        {
+            throw new UnauthorizedAccessException("Seller sign-in is disabled. Please sign in with a buyer account.");
         }
 
         var isPasswordValid = BCrypt.Net.BCrypt.EnhancedVerify(request.Password, user.PasswordHash) 
