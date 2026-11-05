@@ -1975,7 +1975,7 @@ public class OrderService : IOrderService
                 <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
                     <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
                         <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
-                        <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Store Order Fulfillment Alert</p>
+                        <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Store Order Status Alert</p>
                     </div>
                     <div style=""padding: 24px 28px;"">
                         <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">New Customer Order Received!</h2>
@@ -2017,7 +2017,7 @@ public class OrderService : IOrderService
 
                         <div style=""margin-top: 24px; text-align: center;"">
                             <p style=""font-size: 12px; color: #15803d; font-weight: 500; margin-bottom: 8px;"">
-                                View and manage this order in the <strong>Admin Portal &gt; Customer Orders &amp; Fulfillment</strong>.
+                                View and manage this order in the <strong>Admin Portal &gt; Customer Orders</strong>.
                             </p>
                         </div>
                     </div>
@@ -2043,7 +2043,7 @@ public class OrderService : IOrderService
                             <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Thank You for Your Order!</h2>
                             <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
                                 Hello <strong>{System.Net.WebUtility.HtmlEncode(order.CustomerName)}</strong>,<br/>
-                                We have received your order <strong>#{order.PayHereOrderId}</strong> and our team is preparing it for fulfillment.
+                                We have received your order <strong>#{order.PayHereOrderId}</strong> and our team is preparing it for dispatch.
                             </p>
 
                             <div style=""background: #f7faf7; border: 1px solid #e2eae2; border-radius: 8px; padding: 16px; margin-bottom: 20px; font-size: 13px; color: #374151; line-height: 1.6;"">
@@ -2125,15 +2125,15 @@ public class OrderService : IOrderService
             }
 
             // 1. Notification Email to Admin (Sole Store Merchant & Manager)
-            var adminSubject = $"[Arboveya New Paid Order] Order #{order.PayHereOrderId} - Ready for Fulfillment";
+            var adminSubject = $"[Arboveya New Paid Order] Order #{order.PayHereOrderId} - Ready for Dispatch";
             var adminHtml = $@"
                 <div style=""font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; max-width: 600px; margin: 0 auto; background: #ffffff; border: 1px solid #dbe6dc; border-radius: 12px; overflow: hidden;"">
                     <div style=""background: #1c3f24; padding: 24px; text-align: center;"">
                         <h1 style=""color: #ffffff; margin: 0; font-size: 24px; letter-spacing: 2px;"">ARBOVEYA</h1>
-                        <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Store Order Fulfillment Alert</p>
+                        <p style=""color: #d6e8d8; margin: 4px 0 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: 1px;"">Store Order Status Alert</p>
                     </div>
                     <div style=""padding: 24px 28px;"">
-                        <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Payment Confirmed — Order Ready for Fulfillment!</h2>
+                        <h2 style=""color: #1c3f24; margin: 0 0 12px 0; font-size: 18px;"">Payment Confirmed — Order Ready for Dispatch!</h2>
                         <p style=""color: #4b5563; font-size: 14px; line-height: 1.5; margin: 0 0 18px 0;"">
                             A customer has successfully completed payment for order <strong>#{order.PayHereOrderId}</strong>.
                         </p>
@@ -2172,7 +2172,7 @@ public class OrderService : IOrderService
 
                         <div style=""margin-top: 24px; text-align: center;"">
                             <p style=""font-size: 12px; color: #15803d; font-weight: 500; margin-bottom: 8px;"">
-                                Please navigate to <strong>Admin Portal &gt; Customer Orders &amp; Fulfillment</strong> to add tracking numbers and dispatch this shipment.
+                                Please navigate to <strong>Admin Portal &gt; Customer Orders</strong> to add tracking numbers and dispatch this shipment.
                             </p>
                         </div>
                     </div>
@@ -2256,7 +2256,7 @@ public class OrderService : IOrderService
                     Email = string.IsNullOrWhiteSpace(order.CustomerEmail) ? "customer@arboveya.com" : order.CustomerEmail.Trim(),
                     PhoneNumber = order.User?.PhoneNumber,
                     Subject = $"[New Purchase] Order #{order.PayHereOrderId} (${order.TotalAmount:F2})",
-                    Message = $"Customer {order.CustomerName} ({order.CustomerEmail}) has completed payment for Order #{order.PayHereOrderId}. Total Paid: ${order.TotalAmount:F2} USD. Shipping Address: {order.ShippingAddress}. Status: Paid / Ready for Fulfillment.",
+                    Message = $"Customer {order.CustomerName} ({order.CustomerEmail}) has completed payment for Order #{order.PayHereOrderId}. Total Paid: ${order.TotalAmount:F2} USD. Shipping Address: {order.ShippingAddress}. Status: Paid / Ready for Dispatch.",
                     Status = "Unread",
                     CreatedAt = DateTime.UtcNow
                 };
@@ -2428,7 +2428,7 @@ public class OrderService : IOrderService
                         </div>
 
                         <p style=""font-size: 13px; color: #4b5563; line-height: 1.5;"">
-                            Please navigate to <strong>Admin Portal &gt; Customer Orders &amp; Fulfillment</strong> to review the details and process or resolve the refund.
+                            Please navigate to <strong>Admin Portal &gt; Customer Orders</strong> to review the details and process or resolve the refund.
                         </p>
                     </div>
                     <div style=""background: #f9fafb; padding: 16px; text-align: center; border-top: 1px solid #e5e7eb; font-size: 11px; color: #9ca3af;"">
