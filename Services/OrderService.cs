@@ -248,18 +248,11 @@ public class OrderService : IOrderService
             _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created successfully for {CustomerEmail}. Total: {TotalAmount:C}.",
                 order.Id, order.PayHereOrderId, order.CustomerEmail, order.TotalAmount);
 
-            _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created with status '{PaymentStatus}' for {CustomerEmail}. Total: {TotalAmount:C}. Dispatched order notification to Admin and Customer.",
+            _logger.LogInformation("Order '{OrderId}' ({PayHereId}) created with status '{PaymentStatus}' for {CustomerEmail}. Total: {TotalAmount:C}. Awaiting customer payment confirmation.",
                 order.Id, order.PayHereOrderId, order.PaymentStatus, order.CustomerEmail, order.TotalAmount);
 
-            // Dispatch immediate order placement alert to Admin (arboveya@gmail.com) and Customer receipt
-            try
-            {
-                await SendNewOrderCreatedNotificationsAsync(order);
-            }
-            catch (Exception emailEx)
-            {
-                _logger.LogError(emailEx, "Failed to dispatch immediate order notification for '{OrderId}'.", order.Id);
-            }
+            // Note: Immediate "order received" notification before payment is removed.
+            // Notifications to Admin and Buyer are dispatched strictly AFTER purchase payment is confirmed.
 
             var resp = MapToDto(order);
 
@@ -2249,6 +2242,31 @@ public class OrderService : IOrderService
 
                 await _emailService.SendEmailAsync(order.CustomerEmail, buyerSubject, buyerHtml);
                 _logger.LogInformation("Sent order confirmation receipt email for order '{OrderId}' to buyer '{BuyerEmail}'.", order.Id, order.CustomerEmail);
+            }
+
+            // 3. In-App Notification / Message to Admin Portal (under Messages > Inquiries / Orders)
+            try
+            {
+                var adminInAppMsg = new ContactMessage
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = order.UserId,
+                    Name = string.IsNullOrWhiteSpace(order.CustomerName) ? "Customer" : order.CustomerName.Trim(),
+                    UserType = "Customer",
+                    Email = string.IsNullOrWhiteSpace(order.CustomerEmail) ? "customer@arboveya.com" : order.CustomerEmail.Trim(),
+                    PhoneNumber = order.User?.PhoneNumber,
+                    Subject = $"[New Purchase] Order #{order.PayHereOrderId} (${order.TotalAmount:F2})",
+                    Message = $"Customer {order.CustomerName} ({order.CustomerEmail}) has completed payment for Order #{order.PayHereOrderId}. Total Paid: ${order.TotalAmount:F2} USD. Shipping Address: {order.ShippingAddress}. Status: Paid / Ready for Fulfillment.",
+                    Status = "Unread",
+                    CreatedAt = DateTime.UtcNow
+                };
+                _context.ContactMessages.Add(adminInAppMsg);
+                await _context.SaveChangesAsync();
+                _logger.LogInformation("Created in-app purchase message for Admin for order '{OrderId}'.", order.Id);
+            }
+            catch (Exception inAppEx)
+            {
+                _logger.LogWarning(inAppEx, "Failed to create in-app purchase message for order '{OrderId}'.", order.Id);
             }
         }
         catch (Exception ex)
