@@ -1657,7 +1657,7 @@ public class OrderService : IOrderService
     {
         if (order.ShippedAt.HasValue) return order.ShippedAt.Value;
 
-        var paidDate = order.UpdatedAt ?? order.CreatedAt;
+        var paidDate = order.CreatedAt;
         int handlingDays = 5; // Default handling time: 5 business days
 
         var productHandling = order.Items?.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Product?.HandlingTime))?.Product?.HandlingTime;
