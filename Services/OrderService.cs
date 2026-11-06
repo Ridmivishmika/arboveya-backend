@@ -235,6 +235,7 @@ public class OrderService : IOrderService
                 PaymentStatus = "Pending",
                 OrderStatus = "Pending",
                 PayHereOrderId = payHereOrderId,
+                EstimatedShipDate = DateTime.UtcNow.AddDays(7),
                 EstimatedDeliveryDate = DateTime.UtcNow.AddDays(7 + (shippingMethod != null && (shippingMethod.Contains("Express", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Priority", StringComparison.OrdinalIgnoreCase)) ? 2 : (shippingMethod != null && (shippingMethod.Contains("Free", StringComparison.OrdinalIgnoreCase) || shippingMethod.Contains("Economy", StringComparison.OrdinalIgnoreCase)) ? 7 : 5)) + 14),
                 CreatedAt = DateTime.UtcNow,
                 Items = orderItems
@@ -1646,11 +1647,47 @@ public class OrderService : IOrderService
             return $"https://www.fedex.com/fedextrack/?trknbr={Uri.EscapeDataString(cleanTracking)}";
         if (c.Contains("ups"))
             return $"https://www.ups.com/track?tracknum={Uri.EscapeDataString(cleanTracking)}";
-        if (c.Contains("sri lanka post") || c.Contains("sl post") || c.Contains("post"))
-            return $"https://slpost.gov.lk/track-trace/?track_id={Uri.EscapeDataString(cleanTracking)}";
         if (c.Contains("usps"))
             return $"https://tools.usps.com/go/TrackConfirmAction?tLabels={Uri.EscapeDataString(cleanTracking)}";
-        return $"https://t.17track.net/en#nums={Uri.EscapeDataString(cleanTracking)}";
+        // Default / Sri Lanka Post tracking via Track24
+        return $"https://track24.net/service/lkpost/tracking/{Uri.EscapeDataString(cleanTracking)}";
+    }
+
+    private static DateTime CalculateEstimatedShipDate(Order order)
+    {
+        if (order.ShippedAt.HasValue) return order.ShippedAt.Value;
+
+        var paidDate = order.UpdatedAt ?? order.CreatedAt;
+        int handlingDays = 5; // Default handling time: 5 business days
+
+        var productHandling = order.Items?.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Product?.HandlingTime))?.Product?.HandlingTime;
+        if (!string.IsNullOrWhiteSpace(productHandling))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(productHandling, @"(\d+)(?:\s*-\s*(\d+))?");
+            if (match.Success)
+            {
+                if (match.Groups[2].Success && int.TryParse(match.Groups[2].Value, out var maxDays))
+                {
+                    handlingDays = maxDays;
+                }
+                else if (int.TryParse(match.Groups[1].Value, out var singleDay))
+                {
+                    handlingDays = singleDay;
+                }
+            }
+        }
+
+        var current = paidDate;
+        int added = 0;
+        while (added < handlingDays)
+        {
+            current = current.AddDays(1);
+            if (current.DayOfWeek != DayOfWeek.Saturday && current.DayOfWeek != DayOfWeek.Sunday)
+            {
+                added++;
+            }
+        }
+        return current;
     }
 
     private static OrderResponseDto MapToDto(Order order)
@@ -1669,11 +1706,15 @@ public class OrderService : IOrderService
             PaymentId = order.PaymentId,
             TrackingNumber = order.TrackingNumber,
             ShippingCarrier = order.ShippingCarrier,
-            TrackingUrl = order.TrackingUrl,
+            TrackingUrl = !string.IsNullOrWhiteSpace(order.TrackingUrl)
+                ? order.TrackingUrl
+                : (!string.IsNullOrWhiteSpace(order.TrackingNumber) ? GenerateCarrierTrackingUrl(order.ShippingCarrier, order.TrackingNumber) : null),
             ShippingMethod = order.ShippingMethod,
             ShippingCost = order.ShippingCost,
             ShippedAt = order.ShippedAt,
+            EstimatedShipDate = order.EstimatedShipDate ?? CalculateEstimatedShipDate(order),
             EstimatedDeliveryDate = order.EstimatedDeliveryDate,
+            HandlingTime = order.Items?.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Product?.HandlingTime))?.Product?.HandlingTime ?? "5 business days",
             RefundStatus = order.RefundStatus ?? "None",
             RefundReason = order.RefundReason,
             RefundRequestedAt = order.RefundRequestedAt,
@@ -1931,6 +1972,7 @@ public class OrderService : IOrderService
         order.OrderStatus = "Processing";
         order.PaymentId = verifiedPaymentId;
         order.UpdatedAt = DateTime.UtcNow;
+        order.EstimatedShipDate = CalculateEstimatedShipDate(order);
         await _context.SaveChangesAsync();
 
         _logger.LogInformation("Order '{OrderId}' ({PayHereOrderId}) confirmed as PAID. PaymentId: {PaymentId}.",

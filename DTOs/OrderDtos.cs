@@ -103,7 +103,9 @@ public class OrderResponseDto
     public string? ShippingMethod { get; set; }
     public decimal ShippingCost { get; set; }
     public DateTime? ShippedAt { get; set; }
+    public DateTime? EstimatedShipDate { get; set; }
     public DateTime? EstimatedDeliveryDate { get; set; }
+    public string? HandlingTime { get; set; }
     public string RefundStatus { get; set; } = "None";
     public string? RefundReason { get; set; }
     public DateTime? RefundRequestedAt { get; set; }

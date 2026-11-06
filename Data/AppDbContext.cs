@@ -233,7 +233,7 @@ public class AppDbContext : DbContext
                 HomePageHeroText = "Bring Nature Indoors with Arboveya's Premium Botanical Collection",
                 AboutUsContent = "Arboveya is dedicated to bringing vibrant, healthy plants, botanical care accessories, and sustainable greenery into your homes and workplaces.",
                 FacebookLink = "https://www.facebook.com/share/1DspKR2vtm/",
-                WhatsAppNumber = "0717981355",
+                WhatsAppNumber = "0767810420",
                 UpdatedAt = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)
             });
         });

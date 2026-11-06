@@ -34,7 +34,7 @@ public class SiteSettingsService : ISiteSettingsService
                 Mission = "To provide premium herbal wellness solutions that support healthier lifestyles worldwide.",
                 Vision = "To become a trusted global herbal wellness brand.",
                 FacebookLink = "https://www.facebook.com/share/1DspKR2vtm/",
-                WhatsAppNumber = "0717981355",
+                WhatsAppNumber = "0767810420",
                 UpdatedAt = DateTime.UtcNow
             };
 
@@ -44,9 +44,9 @@ public class SiteSettingsService : ISiteSettingsService
         else
         {
             bool modified = false;
-            if (settings.WhatsAppNumber == "+94771234567" || string.IsNullOrWhiteSpace(settings.WhatsAppNumber))
+            if (settings.WhatsAppNumber == "+94771234567" || settings.WhatsAppNumber == "0717981355" || string.IsNullOrWhiteSpace(settings.WhatsAppNumber))
             {
-                settings.WhatsAppNumber = "0717981355";
+                settings.WhatsAppNumber = "0767810420";
                 modified = true;
             }
             if (settings.FacebookLink == "https://facebook.com/arboveya" || string.IsNullOrWhiteSpace(settings.FacebookLink))

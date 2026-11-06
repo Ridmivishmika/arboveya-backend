@@ -58,6 +58,8 @@ public class Order
 
     public DateTime? ShippedAt { get; set; }
 
+    public DateTime? EstimatedShipDate { get; set; }
+
     public DateTime? EstimatedDeliveryDate { get; set; }
 
     [MaxLength(500)]

@@ -286,6 +286,7 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingMethod"" character varying(150);
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippingCost"" numeric(18,2) DEFAULT 0;
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""ShippedAt"" timestamp with time zone;
+            ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""EstimatedShipDate"" timestamp with time zone;
             ALTER TABLE ""Orders"" ADD COLUMN IF NOT EXISTS ""PaymentId"" character varying(100);
             ALTER TABLE ""BlogPosts"" ALTER COLUMN ""ImageUrl"" TYPE text;
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""City"" character varying(100);
@@ -295,6 +296,7 @@ using (var scope = app.Services.CreateScope())
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankAccountNumber"" character varying(100);
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankBranch"" character varying(100);
             ALTER TABLE ""Users"" ADD COLUMN IF NOT EXISTS ""BankRoutingCode"" character varying(100);
+            UPDATE ""SiteSettings"" SET ""WhatsAppNumber"" = '0767810420' WHERE ""WhatsAppNumber"" = '0717981355' OR ""WhatsAppNumber"" IS NULL OR ""WhatsAppNumber"" = '';
             DELETE FROM ""Users"" WHERE ""Email"" IN ('test_arboveya_check@example.com', 'test_cleanup_user@example.com');
         ");
 
