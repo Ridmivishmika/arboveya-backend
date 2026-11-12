@@ -1655,9 +1655,12 @@ public class OrderService : IOrderService
 
     private static DateTime CalculateEstimatedShipDate(Order order)
     {
-        if (order.ShippedAt.HasValue) return order.ShippedAt.Value;
+        if (order.ShippedAt.HasValue && (order.OrderStatus == "Shipped" || order.OrderStatus == "Delivered"))
+            return order.ShippedAt.Value;
 
-        var paidDate = order.CreatedAt;
+        DateTime paidDate = (order.PaymentStatus == "Paid" && order.UpdatedAt.HasValue && order.UpdatedAt.Value > order.CreatedAt)
+            ? order.UpdatedAt.Value
+            : order.CreatedAt;
         int handlingDays = 5; // Default handling time: 5 business days
 
         var productHandling = order.Items?.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Product?.HandlingTime))?.Product?.HandlingTime;
@@ -1712,7 +1715,7 @@ public class OrderService : IOrderService
             ShippingMethod = order.ShippingMethod,
             ShippingCost = order.ShippingCost,
             ShippedAt = order.ShippedAt,
-            EstimatedShipDate = order.EstimatedShipDate ?? CalculateEstimatedShipDate(order),
+            EstimatedShipDate = CalculateEstimatedShipDate(order),
             EstimatedDeliveryDate = order.EstimatedDeliveryDate,
             HandlingTime = order.Items?.FirstOrDefault(i => !string.IsNullOrWhiteSpace(i.Product?.HandlingTime))?.Product?.HandlingTime ?? "5 business days",
             RefundStatus = order.RefundStatus ?? "None",
